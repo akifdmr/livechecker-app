@@ -1,0 +1,1504 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Cards Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f0f;
+            color: #e0e0e0;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        /* Login Screen */
+        #login-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%);
+        }
+        .login-box {
+            background: #1a1a1a;
+            border: 2px solid #4CAF50;
+            border-radius: 12px;
+            padding: 40px;
+            width: 400px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .login-box h1 {
+            color: #4CAF50;
+            font-size: 24px;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .login-box p {
+            color: #888;
+            font-size: 12px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .login-box input {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #e0e0e0;
+            font-size: 14px;
+        }
+        .login-box input:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+        .login-box button {
+            width: 100%;
+            padding: 12px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .login-box button:hover {
+            background: #45a049;
+        }
+        .login-error {
+            color: #f44336;
+            font-size: 12px;
+            margin-bottom: 15px;
+            text-align: center;
+            display: none;
+        }
+
+        /* Main Screen */
+        #main-screen { display: none; }
+        .header {
+            background: #1a1a1a;
+            border-bottom: 2px solid #4CAF50;
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header h1 {
+            color: #4CAF50;
+            font-size: 20px;
+        }
+        .header .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 13px;
+            color: #888;
+        }
+        .header button {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 0;
+        }
+        .tab {
+            background: transparent;
+            color: #888;
+            border: none;
+            padding: 12px 20px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .tab:hover {
+            color: #e0e0e0;
+        }
+        .tab.active {
+            color: #4CAF50;
+            border-bottom-color: #4CAF50;
+        }
+
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .stat-card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .stat-card .label {
+            color: #888;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .filters input, .filters select {
+            padding: 10px 15px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e0e0e0;
+            font-size: 13px;
+        }
+        .filters input:focus, .filters select:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        /* Table */
+        .table-container {
+            background: #1a1a1a;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background: #252525;
+            color: #888;
+            font-size: 11px;
+            text-transform: uppercase;
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #333;
+            position: sticky;
+            top: 0;
+        }
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #222;
+            font-size: 13px;
+        }
+        tr:hover {
+            background: #252525;
+        }
+        .pan {
+            font-family: 'Courier New', monospace;
+            color: #64B5F6;
+            cursor: pointer;
+        }
+        .pan:hover {
+            color: #4CAF50;
+        }
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .badge.turkey { background: #d32f2f; color: white; }
+        .badge.us { background: #1976d2; color: white; }
+        .badge.canada { background: #c62828; color: white; }
+        .badge.uk { background: #5c6bc0; color: white; }
+        .badge.germany { background: #424242; color: white; }
+        .badge.australia { background: #f57c00; color: white; }
+        .badge.default { background: #555; color: white; }
+
+        .actions {
+            display: flex;
+            gap: 5px;
+        }
+        .actions button {
+            padding: 6px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .btn-detail { background: #9C27B0; color: white; }
+        .btn-detail:hover { background: #7B1FA2; }
+        .btn-check { background: #4CAF50; color: white; }
+        .btn-check:hover { background: #45a049; }
+        .btn-balance { background: #2196F3; color: white; }
+        .btn-balance:hover { background: #1976d2; }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active { display: flex; }
+        .modal-content {
+            background: #1a1a1a;
+            border: 2px solid #4CAF50;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-content h2 {
+            color: #4CAF50;
+            margin-bottom: 20px;
+        }
+        .modal-content input {
+            width: 100%;
+            padding: 12px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #e0e0e0;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        .modal-content button {
+            width: 100%;
+            padding: 12px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        .modal-content .close-btn {
+            background: #555;
+        }
+
+        /* Detail Grid */
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .detail-item {
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 12px;
+        }
+        .detail-item.full-width {
+            grid-column: 1 / -1;
+        }
+        .detail-item .label {
+            color: #888;
+            font-size: 11px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .detail-item .value {
+            color: #e0e0e0;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+        }
+        .detail-item .value.highlight {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .detail-section {
+            margin-bottom: 20px;
+        }
+        .detail-section h3 {
+            color: #64B5F6;
+            font-size: 14px;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #333;
+        }
+
+        /* Result Box */
+        .result-box {
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .result-live { color: #4CAF50; font-weight: bold; }
+        .result-dead { color: #f44336; font-weight: bold; }
+        .result-unknown { color: #FFC107; font-weight: bold; }
+        .result-error { color: #f44336; font-weight: bold; }
+
+        /* Loader */
+        .loader {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #4CAF50;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Copy Button */
+        .copy-btn {
+            background: #333;
+            color: #e0e0e0;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            cursor: pointer;
+            margin-left: 8px;
+        }
+        .copy-btn:hover {
+            background: #4CAF50;
+            color: white;
+        }
+
+        /* Live Check Panel */
+        .check-panel {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .check-panel h2 {
+            color: #4CAF50;
+            font-size: 18px;
+            margin-bottom: 15px;
+        }
+        .check-panel textarea {
+            width: 100%;
+            min-height: 250px;
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e0e0e0;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            resize: vertical;
+            margin-bottom: 15px;
+            box-sizing: border-box;
+        }
+        .check-panel textarea:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+        .check-panel .btn-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .check-panel .btn-row button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        .btn-start {
+            background: #4CAF50;
+            color: white;
+            flex: 1;
+        }
+        .btn-start:hover { background: #45a049; }
+        .btn-start:disabled { background: #555; cursor: not-allowed; }
+        .btn-clear-input {
+            background: #555;
+            color: white;
+        }
+        .btn-clear-input:hover { background: #666; }
+        .btn-stop {
+            background: #f44336;
+            color: white;
+            flex: 0 0 120px;
+        }
+        .btn-stop:hover { background: #d32f2f; }
+        .btn-stop:disabled { background: #555; cursor: not-allowed; }
+
+        .check-log {
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.7;
+            max-height: 500px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        .check-log .log-line {
+            padding: 2px 0;
+            border-bottom: 1px solid #1a1a1a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .check-log .log-line:hover {
+            background: #1a1a1a;
+            white-space: normal;
+        }
+        .check-log .log-line.live { color: #4CAF50; }
+        .check-log .log-line.dead { color: #f44336; }
+        .check-log .log-line.error { color: #FFC107; }
+        .check-log .log-line.info { color: #64B5F6; }
+        .check-log .log-line.invalid { color: #9E9E9E; }
+        .check-log .log-line.expired { color: #9E9E9E; }
+
+        .check-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .check-stat {
+            background: #0d0d0d;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 10px;
+            text-align: center;
+        }
+        .check-stat .lbl { color: #888; font-size: 10px; text-transform: uppercase; }
+        .check-stat .val { font-size: 20px; font-weight: bold; color: #e0e0e0; }
+        .check-stat.live .val { color: #4CAF50; }
+        .check-stat.dead .val { color: #f44336; }
+        .check-stat.error .val { color: #FFC107; }
+
+        .check-progress {
+            background: #333;
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 5px;
+        }
+        .check-progress-bar {
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .check-progress-text {
+            color: #888;
+            font-size: 11px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen">
+        <div class="login-box">
+            <h1>🔐 Live Cards</h1>
+            <p>Kart yönetim paneli</p>
+            <div class="login-error" id="login-error"></div>
+            <input type="email" id="email" placeholder="Email" value="developerakifx@gmail.com">
+            <input type="password" id="password" placeholder="Şifre" value="ChangeMe123!">
+            <button onclick="login()">Giriş Yap</button>
+        </div>
+    </div>
+
+    <!-- MAIN SCREEN -->
+    <div id="main-screen">
+        <div class="header">
+            <h1>💳 Live Cards Dashboard</h1>
+            <div class="user-info">
+                <span id="user-email"></span>
+                <button onclick="logout()">Çıkış</button>
+            </div>
+        </div>
+
+        <div class="container">
+
+            <!-- SEKMELER -->
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('list', event)">📋 Kart Listesi</button>
+                <button class="tab" onclick="switchTab('check', event)">🔍 Live Check</button>
+                <button class="tab" onclick="switchTab('import', event)">📥 Import & Check</button>
+            </div>
+
+            <!-- ========== TAB: KART LİSTESİ ========== -->
+            <div id="tab-list">
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="label">Toplam Kart</div>
+                        <div class="value" id="stat-total">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Gösterilen</div>
+                        <div class="value" id="stat-count">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">LIVE Check</div>
+                        <div class="value" id="stat-live">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Toplam Balance</div>
+                        <div class="value" id="stat-balance">$0</div>
+                    </div>
+                </div>
+
+                <div class="filters">
+                    <input type="text" id="filter-bin" placeholder="BIN (6 hane)..." maxlength="6" oninput="onBinInput()">
+                    <input type="text" id="filter-banka" placeholder="Banka ara..." oninput="loadCards()">
+                    <select id="filter-country" onchange="loadCards()">
+                        <option value="">Tüm ülkeler</option>
+                        <option value="TURKEY">TURKEY</option>
+                        <option value="UNITED STATES">UNITED STATES</option>
+                        <option value="CANADA">CANADA</option>
+                        <option value="GERMANY">GERMANY</option>
+                        <option value="AUSTRALIA">AUSTRALIA</option>
+                    </select>
+                    <select id="filter-level" onchange="loadCards()">
+                        <option value="">Tüm seviyeler</option>
+                        <option value="PLATINUM">PLATINUM</option>
+                        <option value="PREFERRED BUSINESS">PREFERRED BUSINESS</option>
+                        <option value="BUSINESS">BUSINESS</option>
+                        <option value="WORLD BLACK">WORLD BLACK</option>
+                        <option value="TRADITIONAL">TRADITIONAL</option>
+                    </select>
+                    <button onclick="loadCards()" style="background:#4CAF50; color:white; border:none; padding:10px 20px; border-radius:6px; cursor:pointer;">🔄 Yenile</button>
+                    <button onclick="clearFilters()" style="background:#555; color:white; border:none; padding:10px 20px; border-radius:6px; cursor:pointer;">🗑️ Temizle</button>
+                </div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>PAN</th>
+                                <th>EXP</th>
+                                <th>CVV</th>
+                                <th>İsim</th>
+                                <th>Banka</th>
+                                <th>Ülke</th>
+                                <th>Tip</th>
+                                <th>Seviye</th>
+                                <th>Aksiyonlar</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cards-table"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ========== TAB: LIVE CHECK ========== -->
+            <div id="tab-check" style="display:none;">
+                <div class="check-panel">
+                    <h2>🔍 Toplu Live Check</h2>
+                    <p style="color:#888; font-size:12px; margin-bottom:15px;">
+                        Her satıra bir kart girin. Formatlar:<br>
+                        • <code>PAN|MM/YY|CVV</code> (kısa)<br>
+                        • <code>PAN|MM/YYYY|CVV</code><br>
+                        • <code>PAN|MM|YYYY|CVV</code><br>
+                        • <code>PAN|MM/YY|CVV|isim|adres|şehir|...|email|ülke</code> (uzun, billing bilgili)<br>
+                        • <code>#</code> ile başlayan satırlar atlanır
+                    </p>
+                    <textarea id="check-input" placeholder="4179030334549239|07/2030|201|Sue|Wolff|70 Beharrell St, Apt 319|Concord|MA|01742||sw.email@mac.com|US
+4179031268635523|10/2030|897|Kim|Frigault|2516 Rotax Road PO Box 163|Monkton|VT|05473|18029225963|kmfrigault@gmail.com|US
+
+4388540045133245|06/2030|807
+4867960033130971|12/2030|994
+4867960070261119|08/2028|985"></textarea>
+
+                    <div class="btn-row">
+                        <button class="btn-start" id="btn-check-start" onclick="startLiveCheck()">▶ BAŞLAT</button>
+                        <button class="btn-stop" id="btn-check-stop" onclick="stopLiveCheck()" disabled>■ DURDUR</button>
+                        <button class="btn-clear-input" onclick="clearCheckInput()">🗑️ Temizle</button>
+                    </div>
+
+                    <div class="check-stats" id="check-stats" style="display:none;">
+                        <div class="check-stat">
+                            <div class="lbl">Toplam</div>
+                            <div class="val" id="stat-check-total">0</div>
+                        </div>
+                        <div class="check-stat live">
+                            <div class="lbl">LIVE</div>
+                            <div class="val" id="stat-check-live">0</div>
+                        </div>
+                        <div class="check-stat dead">
+                            <div class="lbl">DEAD</div>
+                            <div class="val" id="stat-check-dead">0</div>
+                        </div>
+                        <div class="check-stat error">
+                            <div class="lbl">ERROR</div>
+                            <div class="val" id="stat-check-error">0</div>
+                        </div>
+                        <div class="check-stat">
+                            <div class="lbl">İşlenen</div>
+                            <div class="val" id="stat-check-processed">0</div>
+                        </div>
+                    </div>
+
+                    <div class="check-progress" style="display:none;" id="check-progress-wrap">
+                        <div class="check-progress-bar" id="check-progress-bar"></div>
+                    </div>
+                    <div class="check-progress-text" id="check-progress-text"></div>
+
+                    <div class="check-log" id="check-log" style="display:none;"></div>
+                </div>
+            </div>
+
+            <!-- ========== TAB: IMPORT & CHECK ========== -->
+            <div id="tab-import" style="display:none;">
+                <div class="check-panel">
+                    <h2>📥 Import & Check (DB'ye Kaydet)</h2>
+                    <p style="color:#888; font-size:12px; margin-bottom:15px;">
+                        LIVE çıkan kartlar <strong>Aiven DB</strong>'ye billing bilgileriyle kaydedilir.<br>
+                        Format: <code>PAN|MM/YY|CVV|isim|adres|şehir|eyalet|zip|telefon|email|ülke</code>
+                    </p>
+                    <textarea id="import-input" placeholder="4179030334549239|07/2030|201|Sue|Wolff|70 Beharrell St, Apt 319|Concord|MA|01742||sw.email@mac.com|US
+4179031268635523|10/2030|897|Kim|Frigault|2516 Rotax Road PO Box 163|Monkton|VT|05473|18029225963|kmfrigault@gmail.com|US
+4179030344007566|01/2027|667|Karen Murphy|3691 Fort Street|Rocky Mount|North Carolina|27801|US||bonniey67@outlook.com|US"></textarea>
+
+                    <div class="btn-row">
+                        <button class="btn-start" id="btn-import-start" onclick="startImportCheck()">▶ BAŞLAT (DB'ye Kaydet)</button>
+                        <button class="btn-stop" id="btn-import-stop" onclick="stopImportCheck()" disabled>■ DURDUR</button>
+                        <button class="btn-clear-input" onclick="clearImportInput()">🗑️ Temizle</button>
+                    </div>
+
+                    <div class="check-stats" id="import-stats" style="display:none;">
+                        <div class="check-stat">
+                            <div class="lbl">Toplam</div>
+                            <div class="val" id="stat-import-total">0</div>
+                        </div>
+                        <div class="check-stat live">
+                            <div class="lbl">LIVE</div>
+                            <div class="val" id="stat-import-live">0</div>
+                        </div>
+                        <div class="check-stat dead">
+                            <div class="lbl">DEAD</div>
+                            <div class="val" id="stat-import-dead">0</div>
+                        </div>
+                        <div class="check-stat">
+                            <div class="lbl">DB'ye Kaydedilen</div>
+                            <div class="val" id="stat-import-saved">0</div>
+                        </div>
+                        <div class="check-stat">
+                            <div class="lbl">İşlenen</div>
+                            <div class="val" id="stat-import-processed">0</div>
+                        </div>
+                    </div>
+
+                    <div class="check-progress" style="display:none;" id="import-progress-wrap">
+                        <div class="check-progress-bar" id="import-progress-bar"></div>
+                    </div>
+                    <div class="check-progress-text" id="import-progress-text"></div>
+
+                    <div class="check-log" id="import-log" style="display:none;"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- DETAIL MODAL -->
+    <div class="modal" id="detail-modal">
+        <div class="modal-content" style="max-width: 700px;">
+            <h2>📋 Kart Detayları</h2>
+            <div id="detail-content"></div>
+            <button class="close-btn" onclick="closeDetailModal()">Kapat</button>
+        </div>
+    </div>
+
+    <!-- BALANCE CHECK MODAL -->
+    <div class="modal" id="balance-modal">
+        <div class="modal-content">
+            <h2>💰 Balance Check</h2>
+            <div id="balance-card-info" style="margin-bottom:15px; color:#888; font-size:12px;"></div>
+            <input type="number" id="balance-amount" placeholder="Tutar (USD)" value="100" min="1">
+            <button onclick="doBalanceCheck()" id="balance-btn">Sorgula</button>
+            <button class="close-btn" onclick="closeBalanceModal()">İptal</button>
+            <div id="balance-result"></div>
+        </div>
+    </div>
+
+    <!-- LIVE CHECK MODAL -->
+    <div class="modal" id="check-modal">
+        <div class="modal-content">
+            <h2>🔍 Live Check</h2>
+            <div id="check-card-info" style="margin-bottom:15px; color:#888; font-size:12px;"></div>
+            <button onclick="doLiveCheck()" id="check-btn">Check Et</button>
+            <button class="close-btn" onclick="closeCheckModal()">İptal</button>
+            <div id="check-result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API = window.location.origin;
+        let token = localStorage.getItem('token');
+        let currentCard = null;
+
+        window.addEventListener('load', () => {
+            if (token) {
+                showMain();
+            } else {
+                showLogin();
+            }
+        });
+
+        function showLogin() {
+            document.getElementById('login-screen').style.display = 'flex';
+            document.getElementById('main-screen').style.display = 'none';
+        }
+
+        function showMain() {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('main-screen').style.display = 'block';
+            loadUser();
+            loadCards();
+        }
+
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errEl = document.getElementById('login-error');
+            errEl.style.display = 'none';
+
+            try {
+                const res = await fetch(`${API}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    errEl.textContent = data.error || 'Giriş başarısız';
+                    errEl.style.display = 'block';
+                    return;
+                }
+
+                token = data.token;
+                localStorage.setItem('token', token);
+                showMain();
+            } catch (e) {
+                errEl.textContent = 'Bağlantı hatası: ' + e.message;
+                errEl.style.display = 'block';
+            }
+        }
+
+        function logout() {
+            token = null;
+            localStorage.removeItem('token');
+            showLogin();
+        }
+
+        async function loadUser() {
+            try {
+                const res = await fetch(`${API}/auth/me`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                document.getElementById('user-email').textContent = data.user?.email || '';
+            } catch (e) {}
+        }
+
+        // ============================================================
+        // SEKME SİSTEMİ
+        // ============================================================
+        function switchTab(tab, event) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            if (event) event.target.classList.add('active');
+
+            document.getElementById('tab-list').style.display = tab === 'list' ? 'block' : 'none';
+            document.getElementById('tab-check').style.display = tab === 'check' ? 'block' : 'none';
+            document.getElementById('tab-import').style.display = tab === 'import' ? 'block' : 'none';
+        }
+
+        // ============================================================
+        // KART LİSTESİ
+        // ============================================================
+        function onBinInput() {
+            const bin = document.getElementById('filter-bin').value;
+            document.getElementById('filter-bin').value = bin.replace(/\D/g, '');
+            if (bin.length === 6 || bin.length === 0) loadCards();
+        }
+
+        function clearFilters() {
+            document.getElementById('filter-bin').value = '';
+            document.getElementById('filter-banka').value = '';
+            document.getElementById('filter-country').value = '';
+            document.getElementById('filter-level').value = '';
+            loadCards();
+        }
+
+        async function loadCards() {
+            const banka = document.getElementById('filter-banka').value;
+            const country = document.getElementById('filter-country').value;
+            const level = document.getElementById('filter-level').value;
+            const bin = document.getElementById('filter-bin').value;
+
+            const params = new URLSearchParams();
+            if (banka) params.append('banka', banka);
+            if (country) params.append('country', country);
+            if (level) params.append('level', level);
+            if (bin) params.append('bin', bin);
+            params.append('limit', '500');
+
+            try {
+                const res = await fetch(`${API}/live-cards?${params}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+
+                document.getElementById('stat-total').textContent = data.total;
+                document.getElementById('stat-count').textContent = data.count;
+
+                renderCards(data.cards);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+      function renderCards(cards) {
+    const list = document.getElementById('cards-list');
+
+    if (cards.length === 0) {
+        list.innerHTML = '<div style="color:#888;text-align:center;padding:20px;font-size:12px;">Kart bulunamadı</div>';
+        return;
+    }
+
+    list.innerHTML = cards.map((card, i) => {
+        // Favori liste ikonları
+        let favIcons = '';
+        if (card.favLists && card.favLists.length > 0) {
+            favIcons = card.favLists.map(f => 
+                `<span class="fav-icon" style="background:${f.color}" title="${f.name}">⭐</span>`
+            ).join('');
+        }
+
+        return `
+            <div class="card-item" data-index="${i}">
+                <div class="pan">
+                    ${card.pan}
+                    ${favIcons}
+                </div>
+                <div class="meta">
+                    <span>${card.exp} | ${card.cvv}</span>
+                    <span class="bank">${card.banka || '-'}</span>
+                </div>
+                <div class="meta" style="margin-top:3px;">
+                    <span>${card.name || '-'}</span>
+                    <span>${card.country || '-'}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    list.querySelectorAll('.card-item').forEach(el => {
+        el.onclick = () => {
+            const idx = parseInt(el.dataset.index);
+            showCardDetail(cards[idx]);
+        };
+    });
+}
+
+        function copyPan(pan) {
+            navigator.clipboard.writeText(pan);
+        }
+
+        // DETAY MODAL
+        function openDetailModal(card) {
+            currentCard = card;
+            const content = document.getElementById('detail-content');
+
+            content.innerHTML = `
+                <div class="detail-section">
+                    <h3>💳 Kart Bilgileri</h3>
+                    <div class="detail-grid">
+                        <div class="detail-item full-width">
+                            <div class="label">Kart Numarası (PAN)</div>
+                            <div class="value highlight">${card.pan} <button class="copy-btn" onclick="copyText('${card.pan}')">📋 Kopyala</button></div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="label">Son Kullanma</div>
+                            <div class="value">${card.exp}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="label">CVV</div>
+                            <div class="value">${card.cvv}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="label">Marka</div>
+                            <div class="value">${card.type || '-'}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="label">Seviye</div>
+                            <div class="value">${card.level || '-'}</div>
+                        </div>
+                        <div class="detail-item full-width">
+                            <div class="label">Banka</div>
+                            <div class="value">${card.banka || '-'}</div>
+                        </div>
+                        <div class="detail-item full-width">
+                            <div class="label">Ülke</div>
+                            <div class="value">${card.country || '-'}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>👤 Kart Sahibi Bilgileri</h3>
+                    <div class="detail-grid">
+                        <div class="detail-item full-width">
+                            <div class="label">Ad Soyad</div>
+                            <div class="value">${card.name || '-'}</div>
+                        </div>
+                        <div class="detail-item full-width">
+                            <div class="label">Adres</div>
+                            <div class="value">${card.address || '-'}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="label">Şehir</div>
+                            <div class="value">${card.city || '-'}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="label">Eyalet/Bölge</div>
+                            <div class="value">${card.state || '-'}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="label">Posta Kodu</div>
+                            <div class="value">${card.zip || '-'}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="label">Ülke</div>
+                            <div class="value">${card.country || '-'}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>📞 İletişim Bilgileri</h3>
+                    <div class="detail-grid">
+                        <div class="detail-item full-width">
+                            <div class="label">Telefon</div>
+                            <div class="value">${card.phone || '-'} ${card.phone ? `<button class="copy-btn" onclick="copyText('${card.phone}')">📋</button>` : ''}</div>
+                        </div>
+                        <div class="detail-item full-width">
+                            <div class="label">Email</div>
+                            <div class="value">${card.email || '-'} ${card.email ? `<button class="copy-btn" onclick="copyText('${card.email}')">📋</button>` : ''}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>⚡ Hızlı Aksiyonlar</h3>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button onclick="closeDetailModal(); openCheckModal(currentCard);" style="flex:1; background:#4CAF50; color:white; border:none; padding:10px; border-radius:6px; cursor:pointer; font-weight:bold;">🔍 Live Check</button>
+                        <button onclick="closeDetailModal(); openBalanceModal(currentCard);" style="flex:1; background:#2196F3; color:white; border:none; padding:10px; border-radius:6px; cursor:pointer; font-weight:bold;">💰 Balance Check</button>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('detail-modal').classList.add('active');
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detail-modal').classList.remove('active');
+        }
+
+        function copyText(text) {
+            navigator.clipboard.writeText(text);
+            const btn = event.target;
+            const original = btn.textContent;
+            btn.textContent = '✅';
+            setTimeout(() => { btn.textContent = original; }, 1000);
+        }
+
+        // LIVE CHECK (Tekil)
+        function openCheckModal(card) {
+            currentCard = card;
+            document.getElementById('check-card-info').textContent = `${card.pan} - ${card.name || ''}`;
+            document.getElementById('check-result').innerHTML = '';
+            document.getElementById('check-modal').classList.add('active');
+        }
+
+        function closeCheckModal() {
+            document.getElementById('check-modal').classList.remove('active');
+        }
+
+        async function doLiveCheck() {
+            if (!currentCard) return;
+            const btn = document.getElementById('check-btn');
+            const resultEl = document.getElementById('check-result');
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loader"></span>Check ediliyor...';
+            resultEl.innerHTML = '';
+
+            try {
+                const cardStr = `${currentCard.pan}|${currentCard.exp}|${currentCard.cvv}`;
+                const res = await fetch(`${API}/verify`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ card: cardStr })
+                });
+
+                const data = await res.json();
+                const cls = data.status === 'LIVE' ? 'result-live'
+                    : data.status === 'DEAD' ? 'result-dead'
+                    : data.status === 'ERROR' ? 'result-error'
+                    : 'result-unknown';
+
+                resultEl.innerHTML = `
+                    <div class="result-box">
+                        <div class="${cls}">${data.status} - ${data.reason}</div>
+                        <div style="margin-top:10px; color:#888;">Provider: ${data.provider || '-'}</div>
+                        <div style="color:#888;">Duration: ${data.duration}ms</div>
+                        <div style="color:#888;">CVC: ${data.checks?.cvc || '-'}</div>
+                        <div style="color:#888;">Network: ${data.checks?.networkStatus || '-'}</div>
+                        <pre style="margin-top:10px; font-size:11px; color:#666;">${JSON.stringify(data, null, 2).substring(0, 500)}</pre>
+                    </div>
+                `;
+
+                if (data.status === 'LIVE') {
+                    const cur = parseInt(document.getElementById('stat-live').textContent) || 0;
+                    document.getElementById('stat-live').textContent = cur + 1;
+                }
+            } catch (e) {
+                resultEl.innerHTML = `<div class="result-box result-error">Hata: ${e.message}</div>`;
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = 'Check Et';
+        }
+
+        // BALANCE CHECK
+        function openBalanceModal(card) {
+            currentCard = card;
+            document.getElementById('balance-card-info').textContent = `${card.pan} - ${card.name || ''}`;
+            document.getElementById('balance-result').innerHTML = '';
+            document.getElementById('balance-modal').classList.add('active');
+        }
+
+        function closeBalanceModal() {
+            document.getElementById('balance-modal').classList.remove('active');
+        }
+
+        async function doBalanceCheck() {
+            if (!currentCard) return;
+            const amount = parseInt(document.getElementById('balance-amount').value);
+            const btn = document.getElementById('balance-btn');
+            const resultEl = document.getElementById('balance-result');
+
+            if (!amount || amount < 1) {
+                alert('Geçerli bir tutar girin (min 1)');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loader"></span>Sorgulanıyor...';
+            resultEl.innerHTML = '';
+
+            try {
+                const cardStr = `${currentCard.pan}|${currentCard.exp}|${currentCard.cvv}`;
+                const res = await fetch(`${API}/balance-check`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ card: cardStr, amount })
+                });
+
+                const data = await res.json();
+                const cls = data.success ? 'result-live' : 'result-dead';
+
+                resultEl.innerHTML = `
+                    <div class="result-box">
+                        <div class="${cls}">
+                            ${data.success ? '✅ Bakiye Yeterli' : '❌ Bakiye Yetersiz / Reddedildi'}
+                        </div>
+                        <div style="margin-top:10px; color:#888;">Tutar: $${data.amount}</div>
+                        <div style="color:#888;">Sonuç: ${data.reason}</div>
+                        <div style="color:#888;">Provider: Clover</div>
+                        <div style="color:#888;">Duration: ${data.duration}ms</div>
+                        ${data.transaction?.authCode ? `<div style="color:#4CAF50;">Auth Code: ${data.transaction.authCode}</div>` : ''}
+                        <pre style="margin-top:10px; font-size:11px; color:#666;">${JSON.stringify(data, null, 2).substring(0, 500)}</pre>
+                    </div>
+                `;
+
+                if (data.success) {
+                    const cur = document.getElementById('stat-balance').textContent.replace('$', '').replace(',', '') || '0';
+                    document.getElementById('stat-balance').textContent = '$' + (parseInt(cur) + amount).toLocaleString();
+                }
+            } catch (e) {
+                resultEl.innerHTML = `<div class="result-box result-error">Hata: ${e.message}</div>`;
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = 'Sorgula';
+        }
+
+        // ============================================================
+        // TOPLU LIVE CHECK
+        // ============================================================
+        let checkAbort = null;
+
+        function clearCheckInput() {
+            document.getElementById('check-input').value = '';
+            document.getElementById('check-log').innerHTML = '';
+            document.getElementById('check-stats').style.display = 'none';
+            document.getElementById('check-progress-wrap').style.display = 'none';
+            document.getElementById('check-progress-text').textContent = '';
+        }
+
+        function addCheckLog(html, cls = 'info') {
+            const log = document.getElementById('check-log');
+            const line = document.createElement('div');
+            line.className = 'log-line ' + cls;
+            line.innerHTML = html;
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateCheckStats(summary) {
+            document.getElementById('stat-check-total').textContent = summary.total;
+            document.getElementById('stat-check-live').textContent = summary.live;
+            document.getElementById('stat-check-dead').textContent = summary.dead;
+            document.getElementById('stat-check-error').textContent = summary.error;
+            document.getElementById('stat-check-processed').textContent = summary.processed || 0;
+        }
+
+        async function startLiveCheck() {
+            const input = document.getElementById('check-input').value.trim();
+            if (!input) {
+                alert('Kart listesi boş!');
+                return;
+            }
+
+            const lines = input.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+
+            if (lines.length === 0) {
+                alert('Geçerli kart yok!');
+                return;
+            }
+
+            document.getElementById('btn-check-start').disabled = true;
+            document.getElementById('btn-check-stop').disabled = false;
+            document.getElementById('check-log').style.display = 'block';
+            document.getElementById('check-stats').style.display = 'grid';
+            document.getElementById('check-progress-wrap').style.display = 'block';
+            document.getElementById('check-log').innerHTML = '';
+
+            addCheckLog(`▶ ${lines.length} kart işlenecek...`, 'info');
+
+            const summary = { total: lines.length, live: 0, dead: 0, error: 0, processed: 0 };
+            updateCheckStats(summary);
+
+            checkAbort = new AbortController();
+
+            try {
+                const res = await fetch(`${API}/check-stream`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ cards: lines }),
+                    signal: checkAbort.signal
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines2 = buffer.split('\n');
+                    buffer = lines2.pop() || '';
+
+                    for (const line of lines2) {
+                        if (!line.trim()) continue;
+                        try {
+                            const data = JSON.parse(line);
+                            handleCheckEvent(data, summary);
+                        } catch (e) {}
+                    }
+                }
+
+                addCheckLog(`\n✅ Bitti! LIVE: ${summary.live} | DEAD: ${summary.dead} | ERROR: ${summary.error}`, 'info');
+
+            } catch (e) {
+                if (e.name === 'AbortError') {
+                    addCheckLog('■ Kullanıcı tarafından durduruldu.', 'error');
+                } else {
+                    addCheckLog(`❌ Hata: ${e.message}`, 'error');
+                }
+            } finally {
+                document.getElementById('btn-check-start').disabled = false;
+                document.getElementById('btn-check-stop').disabled = true;
+                checkAbort = null;
+            }
+        }
+
+        function handleCheckEvent(data, summary) {
+            if (data.type === 'start') {
+                addCheckLog(`📊 Toplam: ${data.total} kart`, 'info');
+                return;
+            }
+            if (data.type === 'info' && data.event === 'weights_recalculated') {
+                addCheckLog(`🔄 Ağırlıklar: ${JSON.stringify(data.weights)}`, 'info');
+                return;
+            }
+            if (data.type === 'result') {
+                summary.processed++;
+                const pan = data.panMasked || data.pan || '?';
+                const status = data.status || '?';
+                const reason = data.reason || '-';
+                const provider = data.provider || '-';
+                const binInfo = data.bin ? `${data.bin.brand || ''} ${data.bin.type || ''} ${(data.bin.issuer || '').substring(0, 25)}` : '';
+
+                let cls = 'info';
+                if (status === 'LIVE') { cls = 'live'; summary.live++; }
+                else if (status === 'DEAD') { cls = 'dead'; summary.dead++; }
+                else if (status === 'ERROR') { cls = 'error'; summary.error++; }
+                else if (status === 'INVALID') { cls = 'invalid'; }
+                else if (status === 'EXPIRED') { cls = 'expired'; }
+
+                const icon = status === 'LIVE' ? '✔' : status === 'DEAD' ? '✖' : status === 'ERROR' ? '!' : '•';
+
+                addCheckLog(
+                    `${icon} [${data.index}/${data.total}] ${pan} → <strong>${status}</strong> (${reason}) via ${provider} ${binInfo}`,
+                    cls
+                );
+
+                updateCheckStats(summary);
+
+                const pct = (data.index / data.total) * 100;
+                document.getElementById('check-progress-bar').style.width = pct + '%';
+                document.getElementById('check-progress-text').textContent = `${data.index} / ${data.total}`;
+            }
+            if (data.type === 'end') {
+                addCheckLog(`\n📊 Özet: LIVE=${data.summary.live} DEAD=${data.summary.dead}`, 'info');
+            }
+        }
+
+        function stopLiveCheck() {
+            if (checkAbort) checkAbort.abort();
+        }
+
+        // ============================================================
+        // IMPORT & CHECK (DB'ye kaydeder)
+        // ============================================================
+        let importAbort = null;
+
+        function clearImportInput() {
+            document.getElementById('import-input').value = '';
+            document.getElementById('import-log').innerHTML = '';
+            document.getElementById('import-stats').style.display = 'none';
+            document.getElementById('import-progress-wrap').style.display = 'none';
+            document.getElementById('import-progress-text').textContent = '';
+        }
+
+        function addImportLog(html, cls = 'info') {
+            const log = document.getElementById('import-log');
+            const line = document.createElement('div');
+            line.className = 'log-line ' + cls;
+            line.innerHTML = html;
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateImportStats(summary) {
+            document.getElementById('stat-import-total').textContent = summary.total;
+            document.getElementById('stat-import-live').textContent = summary.live;
+            document.getElementById('stat-import-dead').textContent = summary.dead;
+            document.getElementById('stat-import-saved').textContent = summary.saved || 0;
+            document.getElementById('stat-import-processed').textContent = summary.processed || 0;
+        }
+
+        async function startImportCheck() {
+            const input = document.getElementById('import-input').value.trim();
+            if (!input) {
+                alert('Kart listesi boş!');
+                return;
+            }
+
+            const lines = input.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+
+            if (lines.length === 0) {
+                alert('Geçerli kart yok!');
+                return;
+            }
+
+            document.getElementById('btn-import-start').disabled = true;
+            document.getElementById('btn-import-stop').disabled = false;
+            document.getElementById('import-log').style.display = 'block';
+            document.getElementById('import-stats').style.display = 'grid';
+            document.getElementById('import-progress-wrap').style.display = 'block';
+            document.getElementById('import-log').innerHTML = '';
+
+            addImportLog(`▶ ${lines.length} kart işlenecek ve DB'ye kaydedilecek...`, 'info');
+
+            const summary = { total: lines.length, live: 0, dead: 0, error: 0, saved: 0, processed: 0 };
+            updateImportStats(summary);
+
+            importAbort = new AbortController();
+
+            try {
+                const res = await fetch(`${API}/import-and-check`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ cards: lines }),
+                    signal: importAbort.signal
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines2 = buffer.split('\n');
+                    buffer = lines2.pop() || '';
+
+                    for (const line of lines2) {
+                        if (!line.trim()) continue;
+                        try {
+                            const data = JSON.parse(line);
+                            handleImportEvent(data, summary);
+                        } catch (e) {}
+                    }
+                }
+
+                addImportLog(`\n✅ Bitti! LIVE: ${summary.live} | DEAD: ${summary.dead} | DB'ye kaydedilen: ${summary.saved}`, 'info');
+
+            } catch (e) {
+                if (e.name === 'AbortError') {
+                    addImportLog('■ Durduruldu.', 'error');
+                } else {
+                    addImportLog(`❌ Hata: ${e.message}`, 'error');
+                }
+            } finally {
+                document.getElementById('btn-import-start').disabled = false;
+                document.getElementById('btn-import-stop').disabled = true;
+                importAbort = null;
+            }
+        }
+
+        function handleImportEvent(data, summary) {
+            if (data.type === 'start') {
+                addImportLog(`📊 Toplam: ${data.total} kart`, 'info');
+                return;
+            }
+            if (data.type === 'result') {
+                summary.processed++;
+                const pan = data.panMasked || data.pan || '?';
+                const status = data.status || '?';
+                const reason = data.reason || '-';
+                const provider = data.provider || '-';
+
+                let cls = 'info';
+                if (status === 'LIVE') { cls = 'live'; summary.live++; }
+                else if (status === 'DEAD') { cls = 'dead'; summary.dead++; }
+                else if (status === 'ERROR') { cls = 'error'; summary.error++; }
+                else if (status === 'INVALID') { cls = 'invalid'; }
+                else if (status === 'EXPIRED') { cls = 'expired'; }
+
+                const saved = data.liveCardSaved ? ' 💾' : '';
+                if (data.liveCardSaved) summary.saved++;
+
+                const icon = status === 'LIVE' ? '✔' : status === 'DEAD' ? '✖' : status === 'ERROR' ? '!' : '•';
+
+                addImportLog(
+                    `${icon} [${data.index}/${data.total}] ${pan} → <strong>${status}</strong> (${reason}) via ${provider}${saved}`,
+                    cls
+                );
+
+                updateImportStats(summary);
+
+                const pct = (data.index / data.total) * 100;
+                document.getElementById('import-progress-bar').style.width = pct + '%';
+                document.getElementById('import-progress-text').textContent = `${data.index} / ${data.total}`;
+            }
+            if (data.type === 'end') {
+                addImportLog(`\n📊 Özet: LIVE=${data.summary.live} DEAD=${data.summary.dead} DB=${data.summary.savedToLiveCards}`, 'info');
+            }
+        }
+
+        function stopImportCheck() {
+            if (importAbort) importAbort.abort();
+        }
+    </script>
+</body>
+</html>

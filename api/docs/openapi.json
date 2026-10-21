@@ -1,0 +1,69 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "LiveChecker API",
+    "version": "1.0.0",
+    "description": "Kimlik doğrulama, servis durumu ve salt BIN metadata uçları. Ödeme kartı kontrolü, içe aktarma ve tahsilat işlemleri bu genel dokümantasyonda yer almaz."
+  },
+  "servers": [{ "url": "/", "description": "Bu API sunucusu" }],
+  "tags": [
+    { "name": "Auth", "description": "Oturum açma ve mevcut kullanıcı" },
+    { "name": "System", "description": "Servis sağlık ve durum bilgileri" },
+    { "name": "BIN metadata", "description": "Tek bir BIN için salt metadata sorgusu" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Servis sağlık durumunu getirir",
+        "responses": {
+          "200": {
+            "description": "API ve bağlı bileşenlerin durumu",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+          }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Provider havuzu durum özetini getirir",
+        "responses": { "200": { "description": "Provider durum özeti", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } } }
+      }
+    },
+    "/bin/{bin}": {
+      "get": {
+        "tags": ["BIN metadata"],
+        "summary": "Tek BIN için metadata getirir",
+        "parameters": [{ "name": "bin", "in": "path", "required": true, "description": "6 haneli BIN", "schema": { "type": "string", "pattern": "^[0-9]{6}$", "example": "411111" } }],
+        "responses": {
+          "200": { "description": "BIN metadata", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BinMetadata" } } } },
+          "404": { "description": "BIN bulunamadı" }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Oturum açar",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["email", "password"], "properties": { "email": { "type": "string", "format": "email" }, "password": { "type": "string", "format": "password" } } } } } },
+        "responses": { "200": { "description": "Oturum açıldı" }, "400": { "description": "Eksik kimlik bilgisi" }, "401": { "description": "Giriş başarısız" } }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Mevcut kullanıcıyı getirir",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Kullanıcı ve izinleri" }, "401": { "description": "Oturum geçersiz" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" } },
+    "schemas": {
+      "Health": { "type": "object", "properties": { "ok": { "type": "boolean" }, "env": { "type": "string" }, "uptime": { "type": "number" }, "providerCount": { "type": "integer" }, "binCount": { "type": "integer" } } },
+      "BinMetadata": { "type": "object", "properties": { "brand": { "type": "string" }, "type": { "type": "string" }, "category": { "type": "string" }, "issuer": { "type": "string" }, "country": { "type": "string" }, "isoCode2": { "type": "string" }, "isoCode3": { "type": "string" } }, "additionalProperties": true }
+    }
+  }
+}

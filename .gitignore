@@ -1,0 +1,62 @@
+# Node
+node_modules/
+npm-debug.log*
+.pnpm-store/
+
+# Build
+dist/
+build/
+out/
+.vite/
+.cache/
+*.tsbuildinfo
+
+# Env & secrets — KRİTİK
+.env
+.env.*
+!.env.example
+*.env
+*.env.local
+*.env.production
+*.env.development
+certs/
+secrets/
+proxies.txt
+proxy*.txt
+*.pem
+*.key
+*.crt
+*.p12
+credentials*.json
+
+# Temp
+*.bak
+*.backup
+*.old
+*.tmp
+*.zip
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test
+coverage/
+.nyc_output/
+
+# Python (selenium-check.py vs.)
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.chromedriver*
+.geckodriver*
+
+# IDE
+.vscode/
+.idea/
+
+# Büyük veri (27MB — isteğe bağlı, aşağıda açıklama)
+# api/binlist.csv
