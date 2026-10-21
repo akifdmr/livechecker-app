@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: pos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: posapp
+      POSTGRES_PASSWORD: posapp_dev_change_me
+      POSTGRES_DB: posdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pos_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U posapp -d posdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - ./api/.env
+    environment:
+      NODE_ENV: production
+      APP_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://posapp:posapp_dev_change_me@postgres:5432/posdb
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?set ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      MONERIS_ENABLED: ${MONERIS_ENABLED:-false}
+      MONERIS_ENVIRONMENT: ${MONERIS_ENVIRONMENT:-sandbox}
+      MONERIS_CLIENT_ID: ${MONERIS_CLIENT_ID:-}
+      MONERIS_CLIENT_SECRET: ${MONERIS_CLIENT_SECRET:-}
+      MONERIS_API_KEY: ${MONERIS_API_KEY:-}
+      MONERIS_MERCHANT_ID: ${MONERIS_MERCHANT_ID:-}
+      AUTHORIZE_API_LOGIN_ID: ${AUTHORIZE_API_LOGIN_ID:-}
+      AUTHORIZE_TRANSACTION_KEY: ${AUTHORIZE_TRANSACTION_KEY:-}
+      CLOVER_MERCHANT_ID: ${CLOVER_MERCHANT_ID:-}
+      CLOVER_PUBLIC_KEY: ${CLOVER_PUBLIC_KEY:-}
+      CLOVER_PRIVATE_KEY: ${CLOVER_PRIVATE_KEY:-}
+      CLOVER_ECOMMERCE_PRIVATE_KEY: ${CLOVER_ECOMMERCE_PRIVATE_KEY:-}
+      CLOVER_API_TOKEN: ${CLOVER_API_TOKEN:-}
+    expose:
+      - "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  pos_pgdata:

@@ -65,8 +65,24 @@ export const cardsApi = {
     return normalizeBalance(data);
   },
 
-  recheck: async (id: number) => {
-    const { data } = await api.post(`/live-cards/${id}/recheck`);
-    return data;
+  recheck: async (id: number, opts: { bulkMode?: boolean } = {}) => {
+    try {
+      const { data } = await api.post(`/live-cards/${id}/recheck`, {
+        bulkMode: opts.bulkMode === true,
+      });
+      return data;
+    } catch (e: any) {
+      // 429 cooldown → throw yapma, özel obje döndür
+      if (e?.response?.status === 429) {
+        return {
+          success: false,
+          status: 'ERROR',
+          reason: 'recheck_cooldown',
+          reasonShort: 'Cooldown',
+          reasonLong: e?.response?.data?.reasonLong || 'Cooldown aktif',
+        };
+      }
+      throw e;
+    }
   },
 };

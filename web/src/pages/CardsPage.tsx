@@ -15,7 +15,7 @@ import StatCard from '../components/StatCard';
 // SECTION 2: SABİTLER
 // ============================================================
 const PAGE_SIZE = 50;
-const BULK_CONCURRENCY = 5;
+const BULK_CONCURRENCY = 3; // ⭐ 5 → 3 (rate limit)
 
 // ============================================================
 // SECTION 3: COMPONENT + STATE
@@ -72,6 +72,7 @@ export default function CardsPage() {
     live: number;
     dead: number;
     errors: number;
+    cooldown: number;
     scope: string;
   } | null>(null);
 
@@ -384,7 +385,7 @@ export default function CardsPage() {
   }
 
   // ============================================================
-  // SECTION 15: RECHECK
+  // SECTION 15: RECHECK (TEKLİ)
   // ============================================================
   async function handleRecheck(card: Card) {
     if (recheckLoadingId !== null) return;
@@ -392,7 +393,14 @@ export default function CardsPage() {
 
     setRecheckLoadingId(card.id);
     try {
+      // ⭐ Tekli recheck — bulkMode yok (1h cooldown, $0/$1 fallback)
       const data = await cardsApi.recheck(card.id);
+
+      if (data.reason === 'recheck_cooldown') {
+        alert(`⏱ Cooldown: ${data.reasonLong || 'Bu kart için son 1 saat içinde check yapılmış.'}`);
+        return;
+      }
+
       applyRecheckToLocalCard(card, data);
 
       const statusIcon =
@@ -404,6 +412,7 @@ export default function CardsPage() {
       msg += `Sebep: ${data.reasonShort || data.reason || '-'}\n`;
       if (data.reasonLong) msg += `Açıklama: ${data.reasonLong}\n`;
       msg += `Provider: ${data.provider || '-'}`;
+      if (data.merchantId) msg += ` (merchant: ${data.merchantId})`;
       if (data.providerCode) msg += ` (kod: ${data.providerCode})`;
       if (data.bin) {
         const binInfo = [
@@ -423,6 +432,9 @@ export default function CardsPage() {
     }
   }
 
+  // ============================================================
+  // SECTION 15b: BULK RECHECK
+  // ============================================================
   async function runBulkRecheck(scope: Card[], label: string) {
     if (bulkRecheck?.running) return;
 
@@ -436,22 +448,27 @@ export default function CardsPage() {
         `${scope.length} kart yeniden check edilsin mi?\n\n` +
           `Kapsam: ${label}\n` +
           `Sayfa: ${page + 1} / ${totalPages}\n` +
-          `Eşzamanlılık: ${BULK_CONCURRENCY}\n` +
+          `Provider: Clover3 (USD, $0 auth)\n` +
+          `Cooldown: 24 saat\n` +
+          `Eşzamanlılık: ${BULK_CONCURRENCY}\n\n` +
           `Bu işlem birkaç dakika sürebilir.`
       )
     )
       return;
 
-    const state = {
+    // ⭐ Her worker kendi local counter'ını tutar (race condition yok)
+    const local = { live: 0, dead: 0, errors: 0, cooldown: 0 };
+    const initial = {
       running: true,
       done: 0,
       total: scope.length,
       live: 0,
       dead: 0,
       errors: 0,
+      cooldown: 0,
       scope: label,
     };
-    setBulkRecheck({ ...state });
+    setBulkRecheck({ ...initial });
 
     const queue: Card[] = [...scope];
 
@@ -461,36 +478,62 @@ export default function CardsPage() {
         if (!card) break;
 
         try {
-          const data = await cardsApi.recheck(card.id);
-          const isLive = applyRecheckToLocalCard(card, data);
-          if (isLive) state.live++;
-          else if (data.status === 'DEAD') state.dead++;
-          else state.errors++;
-        } catch {
-          state.errors++;
+          // ⭐ bulkMode: true → $0 auth zorunlu, $1 yasak, 24h cooldown
+          const data = await cardsApi.recheck(card.id, { bulkMode: true });
+
+          if (data.reason === 'recheck_cooldown') {
+            local.cooldown++;
+          } else if (data.status === 'LIVE') {
+            local.live++;
+            applyRecheckToLocalCard(card, data);
+          } else if (data.status === 'DEAD') {
+            local.dead++;
+            applyRecheckToLocalCard(card, data);
+          } else {
+            local.errors++;
+          }
+        } catch (e: any) {
+          if (e?.response?.status === 429) {
+            local.cooldown++;
+          } else {
+            local.errors++;
+          }
         }
 
-        state.done++;
-        setBulkRecheck({ ...state });
+        // ⭐ Tek noktada state güncelle — race yok
+        setBulkRecheck({
+          ...initial,
+          done: local.live + local.dead + local.errors + local.cooldown,
+          live: local.live,
+          dead: local.dead,
+          errors: local.errors,
+          cooldown: local.cooldown,
+        });
       }
     }
 
     await Promise.all(
-      Array.from(
-        { length: Math.min(BULK_CONCURRENCY, scope.length) },
-        () => worker()
-      )
+      Array.from({ length: Math.min(BULK_CONCURRENCY, scope.length) }, () => worker())
     );
 
-    state.running = false;
-    setBulkRecheck({ ...state });
+    setBulkRecheck({
+      running: false,
+      done: scope.length,
+      total: scope.length,
+      live: local.live,
+      dead: local.dead,
+      errors: local.errors,
+      cooldown: local.cooldown,
+      scope: label,
+    });
 
     alert(
       `✅ Toplu Check Tamamlandı (${label})\n\n` +
-        `Toplam: ${state.total}\n` +
-        `✔ LIVE: ${state.live}\n` +
-        `✖ DEAD: ${state.dead}\n` +
-        `⚠ Hata: ${state.errors}`
+        `Toplam: ${scope.length}\n` +
+        `✔ LIVE: ${local.live}\n` +
+        `✖ DEAD: ${local.dead}\n` +
+        `⚠ Hata: ${local.errors}\n` +
+        `⏱ Cooldown: ${local.cooldown}`
     );
 
     await loadCards();
@@ -507,7 +550,7 @@ export default function CardsPage() {
   }
 
   // ============================================================
-  // SECTION 16: BALANCE CHECK
+  // SECTION 16: BALANCE CHECK (TEKLİ)
   // ============================================================
   async function handleBalanceCheck(card: Card) {
     if (balanceLoadingId !== null) return;
@@ -553,7 +596,9 @@ export default function CardsPage() {
 
       if (data.success) {
         const head = isLive ? '✅ LIVE' : '✅ APPROVED (preauth)';
-        let msg = `${head}\nProvider: ${data.provider || '-'}\nTutar: $${data.amount}`;
+        let msg = `${head}\nProvider: ${data.provider || '-'}`;
+        if (data.merchantId) msg += ` (${data.merchantId})`;
+        msg += `\nTutar: $${data.amount}`;
         if (data.authCode) msg += `\nAuth Code: ${data.authCode}`;
         if ((data.refundedAmount || 0) > 0) {
           msg += `\nRefunded: $${data.refundedAmount}`;
@@ -617,6 +662,7 @@ export default function CardsPage() {
             <span className="text-live">✔ LIVE: {bulkRecheck.live}</span>
             <span className="text-dead">✖ DEAD: {bulkRecheck.dead}</span>
             <span className="text-warn">⚠ Hata: {bulkRecheck.errors}</span>
+            <span className="text-gray-500">⏱ Cooldown: {bulkRecheck.cooldown}</span>
           </div>
         </div>
       )}
@@ -718,7 +764,7 @@ export default function CardsPage() {
           onClick={handleRecheckAll}
           disabled={bulkRecheck?.running || cards.length === 0}
           className="bg-[#2196F3] hover:bg-[#1976d2] disabled:bg-gray-600 disabled:opacity-50 text-white px-3 py-2 rounded-md text-xs font-bold"
-          title="Bu sayfadaki tüm kartları yeniden check et"
+          title="Bu sayfadaki tüm kartları yeniden check et (Clover3 $0, 24h cooldown)"
         >
           {bulkRecheck?.running
             ? `🔄 ${bulkRecheck.done}/${bulkRecheck.total}`
@@ -787,6 +833,7 @@ export default function CardsPage() {
             onClick={handleRecheckSelected}
             disabled={bulkRecheck?.running || selectedCount === 0}
             className="bg-[#9C27B0] hover:bg-[#7B1FA2] disabled:bg-gray-600 disabled:opacity-50 text-white px-3 py-1.5 rounded-md text-xs font-bold"
+            title="Sadece seçili kartları check et (Clover3 $0, 24h cooldown)"
           >
             {bulkRecheck?.running
               ? `🔄 ${bulkRecheck.done}/${bulkRecheck.total}`

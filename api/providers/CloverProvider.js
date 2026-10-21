@@ -741,50 +741,71 @@ if (chargeRes.status === 402) {
   // ============================================================
   // VERIFY — $0.00 Account Verification
   // ============================================================
-  async verify(card, proxyStr = null, options = {}) {
-  // İki çağrı şekli: verify(card, options) vs verify(card, proxyStr, options)
-  if (
-    proxyStr !== null &&
-    typeof proxyStr === 'object' &&
-    !Array.isArray(proxyStr) &&
-    (options === undefined || options === null || Object.keys(options).length === 0)
-  ) {
-    options = proxyStr;
-    proxyStr = null;
+    async verify(card, proxyStr = null, options = {}) {
+    // İki çağrı şekli: verify(card, options) vs verify(card, proxyStr, options)
+    if (
+      proxyStr !== null &&
+      typeof proxyStr === 'object' &&
+      !Array.isArray(proxyStr) &&
+      (options === undefined || options === null || Object.keys(options).length === 0)
+    ) {
+      options = proxyStr;
+      proxyStr = null;
+    }
+    if (options == null) options = {};
+
+    // ⭐ v12: zeroAuth kontrolü — $1 + void fraud riski YOK
+    const supportsZero = this.config.zeroAuth !== false;
+    const requestedAmount = Number(
+      options.amount != null
+        ? options.amount
+        : card._amount != null
+          ? card._amount
+          : 0
+    );
+    const amount = Number.isFinite(requestedAmount) && requestedAmount > 0
+      ? requestedAmount
+      : 0;
+
+    // $0 verify için zeroAuth gerekli
+    if (amount === 0 && !supportsZero) {
+      console.warn(
+        `${this._p('VERIFY')} ⚠ $0 auth desteklenmiyor (zeroAuth=false) → failover`
+      );
+      return {
+        success: false,
+        reason: 'zero_auth_unsupported',
+        message: '$0 verify bu merchant için desteklenmiyor. Başka provider denenecek.',
+        unknown: false,
+        raw: null,
+      };
+    }
+
+    const amountCents = Math.round(amount * 100);
+    const capture = options.capture === true || card._capture === true;
+
+    const v = this._validateCard(card);
+    if (!v.ok) {
+      console.error(`${this._p('VERIFY')} ❌ Kart: ${v.reason}`);
+      return { success: false, reason: v.reason, message: 'Kart doğrulaması başarısız.', raw: v.raw };
+    }
+    const { pan, expMonth, expYear } = v;
+
+    console.log(
+      `${this._p('VERIFY')} amount=$${amount.toFixed(2)} (${amountCents} cent) ` +
+      `capture=${capture} zeroAuth=${supportsZero}`
+    );
+
+    // ⭐ v11: ECOM retry destekli akış
+    return this._chargeWithEcomRetry({
+      cardData: { pan, expMonth, expYear, cvv: card.cvv },
+      amountCents,
+      capture,
+      tag: 'VERIFY',
+      proxyStr,
+      allowZero: true,
+    });
   }
-  if (options == null) options = {};
-
-  let amount = Number(
-    options.amount != null
-      ? options.amount
-      : card._amount != null
-        ? card._amount
-        : 0
-  );
-  if (!Number.isFinite(amount) || amount < 0) amount = 0;
-
-  const amountCents = Math.round(amount * 100);
-  const capture = options.capture === true || card._capture === true;
-
-  const v = this._validateCard(card);
-  if (!v.ok) {
-    console.error(`${this._p('VERIFY')} ❌ Kart: ${v.reason}`);
-    return { success: false, reason: v.reason, message: 'Kart doğrulaması başarısız.', raw: v.raw };
-  }
-  const { pan, expMonth, expYear } = v;
-
-  console.log(`${this._p('VERIFY')} amount=$${amount.toFixed(2)} (${amountCents} cent) capture=${capture}`);
-
-  // ⭐ v11: ECOM retry destekli akış
-  return this._chargeWithEcomRetry({
-    cardData: { pan, expMonth, expYear, cvv: card.cvv },
-    amountCents,
-    capture,
-    tag: 'VERIFY',
-    proxyStr,
-    allowZero: true,
-  });
-}
 
 // ============================================================
 // ⭐ v11: ECOM retry helper

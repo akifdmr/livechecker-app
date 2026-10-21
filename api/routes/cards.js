@@ -30,6 +30,23 @@ module.exports = (deps) => {
     return k;
   }
 
+  /**
+   * Provider instance'ından merchant bilgisini çıkar (defensive).
+   */
+  function extractMerchantInfo(cardChecker, providerKey) {
+    if (!providerKey) {
+      return { merchantId: null, merchantName: null };
+    }
+    const provider = cardChecker?.providers?.[providerKey];
+    if (!provider) {
+      return { merchantId: null, merchantName: null };
+    }
+    return {
+      merchantId: provider.config?.merchantId || null,
+      merchantName: provider.name || providerKey,
+    };
+  }
+
   function normalizeEnriched(enriched) {
     if (!enriched || typeof enriched !== 'object') {
       const mapped = mapReason('invalid_response', null);
@@ -37,7 +54,9 @@ module.exports = (deps) => {
         success: false, status: 'UNKNOWN', reason: 'invalid_response',
         reasonShort: mapped.short, reasonLong: mapped.long,
         severity: mapped.severity, rawMessage: mapped.raw,
-        provider: null, providerKey: null, providerCode: null,
+        provider: null, providerKey: null,
+        merchantId: null, merchantName: null,      // ⭐
+        providerCode: null,
         message: null, bin: null, raw: null,
         providerRaw: null, providerMessage: null,
         failover: false, unknown: false, error: null,
@@ -76,6 +95,8 @@ module.exports = (deps) => {
       severity: mapped.severity, rawMessage: mapped.raw,
       provider: enriched.provider || enriched.providerKey || null,
       providerKey: enriched.providerKey || enriched.provider || null,
+      merchantId: enriched.merchantId ?? null,      // ⭐
+      merchantName: enriched.merchantName ?? null,  // ⭐
       providerCode: enriched.providerCode ?? null,
       message: enriched.message ?? null,
       avs: enriched.avs ?? null,
@@ -129,6 +150,8 @@ module.exports = (deps) => {
 
       provider: raw.provider || null,
       providerKey: raw.providerKey || raw.provider || null,
+      merchantId: raw.merchantId ?? null,       // ⭐ EKLENDİ
+      merchantName: raw.merchantName ?? null,   // ⭐ EKLENDİ
       providerCode: raw.providerCode ?? null,
       message: raw.message ?? null,
 
@@ -179,10 +202,13 @@ module.exports = (deps) => {
 
   // ============================================================
   // LIVE CHECK VIA CARD CHECKER (failover dahili — checkAndEnrich)
+  // ⭐ v2: bulkMode destructure FIX + merchant bilgisi tüm return'lerde
   // ============================================================
   async function tryLiveCheckViaCardChecker(card, cardChecker, ctx = {}) {
     const startTime = Date.now();
-    const { userId } = ctx;
+    // ⭐ FIX: bulkMode eklendi
+    const { userId, preferProvider = null, bulkMode = false } = ctx;
+    const effectivePreferProvider = preferProvider || (bulkMode ? 'clover3' : null);
 
     try {
       const [rawMonth, rawYear] = String(card.exp || '').split('/');
@@ -207,9 +233,14 @@ module.exports = (deps) => {
         email: card.email || '',
       };
 
-      const enriched = await cardChecker.checkAndEnrich(parsed);
+      // ⭐ preferProvider'ı checkCard'a geçir (bulk mode'da clover3 sabit)
+      const enriched = await cardChecker.checkAndEnrich(parsed, {
+        preferProvider: effectivePreferProvider || undefined,
+      });
+
       const duration = Date.now() - startTime;
       const providerKey = enriched.providerKey || enriched.provider || null;
+      const { merchantId, merchantName } = extractMerchantInfo(cardChecker, providerKey);
 
       const isSuccess = enriched.success === true;
       const isFailover = enriched.failover === true;
@@ -290,15 +321,17 @@ module.exports = (deps) => {
         }
       }
 
-      // RETURN
+      // ⭐ RETURN — tüm branch'lerde merchantId + merchantName
       if (isSuccess) {
         return {
           ok: true, failover: false, success: true,
           status: 'LIVE', reason: 'approved',
           reasonShort: 'Onaylandı', reasonLong: 'Live Check başarıyla onaylandı.',
           severity: 'low', rawMessage: null,
-          provider: providerKey || 'clover3',
+          provider: merchantName || 'clover3',
           providerKey,
+          merchantId,
+          merchantName,
           providerCode: enriched.providerCode || null,
           message: enriched.message || null,
           amount: 0, currency: 'USD',
@@ -320,8 +353,10 @@ module.exports = (deps) => {
           reasonLong: mapped.long || enriched.message || 'Provider altyapı hatası',
           severity: 'medium',
           rawMessage: mapped.raw || enriched.message || null,
-          provider: providerKey || null,
+          provider: merchantName || null,
           providerKey,
+          merchantId,
+          merchantName,
           providerCode: enriched.providerCode || null,
           message: enriched.message || null,
           amount: 0, txnId: null, duration,
@@ -338,8 +373,10 @@ module.exports = (deps) => {
           reasonLong: mapped.long || enriched.message || 'Belirsiz yanıt',
           severity: mapped.severity || 'medium',
           rawMessage: mapped.raw || enriched.message || null,
-          provider: providerKey || null,
+          provider: merchantName || null,
           providerKey,
+          merchantId,
+          merchantName,
           providerCode: enriched.providerCode || null,
           message: enriched.message || null,
           amount: 0, txnId: null, duration,
@@ -353,8 +390,10 @@ module.exports = (deps) => {
         status: 'DEAD', reason: finalReason,
         reasonShort: mapped.short, reasonLong: mapped.long,
         severity: mapped.severity, rawMessage: mapped.raw,
-        provider: providerKey || 'clover3',
+        provider: merchantName || 'clover3',
         providerKey,
+        merchantId,
+        merchantName,
         providerCode: enriched.providerCode || null,
         message: enriched.message || null,
         amount: 0, txnId: null, duration,
@@ -377,6 +416,7 @@ module.exports = (deps) => {
         reasonShort: mapped.short, reasonLong: mapped.long,
         severity: mapped.severity, rawMessage: mapped.raw,
         provider: null, providerKey: null,
+        merchantId: null, merchantName: null,
         providerCode: null,
         message: e.message, error: e.message,
         amount: 0, txnId: null, duration: Date.now() - startTime,
@@ -387,6 +427,7 @@ module.exports = (deps) => {
 
   // ============================================================
   // LIVE CHECK VIA SPECIFIC PROVIDER (ör. moneris verify)
+  // ⭐ v2: yarım return FIX
   // ============================================================
   async function runLiveCheckViaProvider(card, providerKey, cardChecker, ctx = {}) {
     const { userId } = ctx;
@@ -398,7 +439,9 @@ module.exports = (deps) => {
       return {
         ok: false, failover: true, success: false,
         status: 'ERROR', reason: 'provider_not_found',
-        provider: key, error: `Provider bulunamadı: ${key}`,
+        provider: key, providerKey: key,
+        merchantId: null, merchantName: null,
+        error: `Provider bulunamadı: ${key}`,
         duration: Date.now() - startTime,
       };
     }
@@ -462,26 +505,39 @@ module.exports = (deps) => {
         }
       }
 
-const providerName = provider.name || key;
-const merchantId = provider.config?.merchantId || null;
+      const providerName = provider.name || key;
+      const merchantId = provider.config?.merchantId || null;
 
-return {
-  ok: true,
-  failover: false,
-  success: !!result.success,
-  status: result.success ? 'APPROVED' : 'DEAD',
-  reason: result.reason || (result.success ? 'approved' : 'declined'),
-  reasonShort: mapped.short,
-  reasonLong: mapped.long,
-  severity: mapped.severity,
-  rawMessage: mapped.raw,
-  provider: providerName,              // ⭐ 'HamzaMedine'
-  providerKey: key,                    // 'clover3'
-  merchantId,                          // ⭐ 'SPT0MNAVW6JJ1'
-  merchantName: providerName,          // ⭐
-  providerCode: result.providerCode || null,
-  // ...
-};
+      // ⭐ v2: tam return (yarım bırakılmıştı)
+      return {
+        ok: true,
+        failover: false,
+        success: !!result.success,
+        status: result.success ? 'APPROVED' : 'DEAD',
+        reason: result.reason || (result.success ? 'approved' : 'declined'),
+        reasonShort: mapped.short,
+        reasonLong: mapped.long,
+        severity: mapped.severity,
+        rawMessage: mapped.raw,
+        provider: providerName,
+        providerKey: key,
+        merchantId,
+        merchantName: providerName,
+        providerCode: result.providerCode || null,
+        message: result.message || null,
+        amount: 0,
+        currency: 'USD',
+        authCode: result.authCode || null,
+        chargeId: result.transactionId || result.raw?.id || null,
+        transactionId: result.transactionId || result.raw?.id || null,
+        txnId: null,
+        refundedAmount: 0,
+        netAmount: 0,
+        voided: false,
+        duration,
+        raw: result.raw || null,
+        providerRaw: result.raw || null,
+      };
     } catch (e) {
       const duration = Date.now() - startTime;
       const isProviderError = e.message.startsWith('PROVIDER_ERROR:');
@@ -492,6 +548,8 @@ return {
         status: 'ERROR',
         reason: isProviderError ? 'provider_error' : 'network_error',
         provider: key, providerKey: key,
+        merchantId: provider.config?.merchantId || null,
+        merchantName: provider.name || key,
         message: e.message, error: e.message,
         duration,
       };
@@ -501,6 +559,7 @@ return {
   // ============================================================
   // PREAUTH VIA PROVIDER (unified — eski try*Balance'ların yerine)
   // + Partial Refund desteği (Auth + Kısmi Refund akışı)
+  // ⭐ v2: duplicate provider key FIX + merchantId + providerName
   // ============================================================
   async function runPreauthViaProvider(card, amount, providerKey, cardChecker, ctx = {}) {
     const { userId, refundAmount = 0 } = ctx;
@@ -512,7 +571,9 @@ return {
       return {
         ok: false, failover: true, success: false,
         status: 'ERROR', reason: 'provider_not_found',
-        provider: key, error: `Provider bulunamadı: ${key}`,
+        provider: key, providerKey: key,
+        merchantId: null, merchantName: null,
+        error: `Provider bulunamadı: ${key}`,
         duration: Date.now() - startTime,
       };
     }
@@ -573,16 +634,20 @@ return {
         durationMs: Date.now() - startTime,
       }).catch(() => {});
 
-      const providerName = provider.name || key;  // 'HamzaMedine' / 'SNSAUTO (S&S Auto express)'
+      const providerName = provider.name || key;
+      const merchantId = provider.config?.merchantId || null;
 
+      // ⭐ v2 FIX: duplicate provider key kaldırıldı, merchantId eklendi
       return {
         ok: false,
         failover: isProviderError || isNetwork,
         success: false,
         status: 'ERROR',
         reason: isProviderError ? 'provider_error' : (isNetwork ? 'network_error' : 'provider_error'),
-        provider: key, providerKey: key,
-        provider: providerName,              // ⭐ 'HamzaMedine'
+        provider: providerName,
+        providerKey: key,
+        merchantId,
+        merchantName: providerName,
         error: e.message, message: e.message,
         duration: Date.now() - startTime,
       };
@@ -702,6 +767,9 @@ return {
     }
 
     // ---- RETURN ----
+    const providerName = provider.name || key;
+    const merchantId = provider.config?.merchantId || null;
+
     return {
       ok: true,
       failover: false,
@@ -712,7 +780,10 @@ return {
       reasonLong: mapped.long,
       severity: mapped.severity,
       rawMessage: mapped.raw,
-      provider: key, providerKey: key,
+      provider: providerName,              // ⭐ providerName (key değil)
+      providerKey: key,
+      merchantId,                          // ⭐ EKLENDİ
+      merchantName: providerName,          // ⭐ EKLENDİ
       providerCode: result.providerCode || null,
       message: result.message || null,
       amount,
@@ -1233,6 +1304,7 @@ return {
   // ============================================================
   router.post('/live-cards/:id/recheck', authMiddleware, async (req, res) => {
     const { id } = req.params;
+    const { bulkMode = false } = req.body || {};
 
     try {
       const cardResult = await db.pool.query(
@@ -1246,22 +1318,44 @@ return {
 
       const card = cardResult.rows[0];
 
-      // Aynı akışı tryLiveCheckViaCardChecker ile çalıştır
+      // ⭐ COOLDOWN: bulk = 24 saat, tekli = 1 saat
+      const cooldownHours = bulkMode ? 24 : 1;
+      const recent = await db.pool.query(
+        `SELECT COUNT(*)::int AS cnt FROM charge_audit
+         WHERE live_card_id = $1
+           AND action = 'live_check'
+           AND created_at > NOW() - ($2 || ' hours')::interval`,
+        [id, String(cooldownHours)]
+      );
+
+      if (recent.rows[0].cnt > 0) {
+        return res.status(429).json({
+          success: false,
+          status: 'ERROR',
+          reason: 'recheck_cooldown',
+          reasonShort: 'Cooldown',
+          reasonLong: `Bu kart için son ${cooldownHours} saat içinde check yapılmış. Tekrar denemek için bekleyin.`,
+        });
+      }
+
+      // ⭐ bulkMode'u tryLiveCheckViaCardChecker'a geç
       const outcome = await tryLiveCheckViaCardChecker(
         { ...card, id: card.id },
         cardChecker,
-        { userId: req.user.id }
+        { userId: req.user.id, bulkMode }
       );
 
-      // normalizeBalanceResponse tarzı response
       const response = normalizeBalanceResponse(outcome, 'live_check');
       res.json(response);
     } catch (e) {
       console.error('[RECHECK]', e.message);
       const mapped = mapReason('provider_error', e.message);
       res.status(500).json({
-        success: false, status: 'ERROR', reason: 'provider_error',
-        reasonShort: mapped.short, reasonLong: mapped.long,
+        success: false,
+        status: 'ERROR',
+        reason: 'provider_error',
+        reasonShort: mapped.short,
+        reasonLong: mapped.long,
         error: e.message,
       });
     }
@@ -1357,8 +1451,10 @@ return {
 
       return res.json(normalizeBalanceResponse({
         ...outcome,
-        provider: selectedProvider,
-        providerKey: selectedProvider,
+        provider: outcome.provider || selectedProvider,
+        providerKey: outcome.providerKey || selectedProvider,
+        merchantId: outcome.merchantId ?? null,
+        merchantName: outcome.merchantName ?? null,
         operation,
         bin: binData,
       }, operation));
@@ -1458,8 +1554,10 @@ return {
 
       return res.json(normalizeBalanceResponse({
         ...outcome,
-        provider: selectedProvider,
-        providerKey: selectedProvider,
+        provider: outcome.provider || selectedProvider,
+        providerKey: outcome.providerKey || selectedProvider,
+        merchantId: outcome.merchantId ?? null,
+        merchantName: outcome.merchantName ?? null,
         operation,
         bin: binData,
       }, operation));
@@ -1610,7 +1708,7 @@ return {
           txn.provider_txn_id,
           providerKey,
           null,
-          txn.amount // fallback refund tutarı
+          txn.amount
         );
       } catch (e) {
         return res.status(500).json({ error: e.message });
@@ -1705,7 +1803,6 @@ return {
           isCaptured: true, status: 'captured', capturedAmount: captureAmount,
         });
 
-        // live_cards_full'da total_captured güncelle
         if (txn.card_id) {
           await db.pool.query(
             `UPDATE live_cards_full
@@ -1794,7 +1891,6 @@ return {
           refundedAmount: newRefunded,
         });
 
-        // live_cards_full'da total_refunded güncelle
         if (txn.card_id) {
           await db.pool.query(
             `UPDATE live_cards_full

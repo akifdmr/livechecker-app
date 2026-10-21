@@ -59,4 +59,5 @@ __pycache__/
 .idea/
 
 # Büyük veri (27MB — isteğe bağlı, aşağıda açıklama)
-# api/binlist.csv
+# api/binlist.csvapi/seed-api-keys.js
+api/seed-api-keys.js

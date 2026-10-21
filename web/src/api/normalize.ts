@@ -17,6 +17,8 @@ export function normalizeBalance(raw: any): BalanceResult {
     provider: d.provider ?? null,
     providerKey: d.providerKey ?? d.provider ?? null,        // ⭐ EKLENDİ
     providerCode: d.providerCode ?? null,                     // ⭐ EKLENDİ
+        merchantId: d.merchantId ?? null,
+    merchantName: d.merchantName ?? null,
     message: d.message ?? null,
     providerMessage: d.providerMessage ?? d.message ?? d.error?.message ?? null,
     operation: d.operation ?? null,

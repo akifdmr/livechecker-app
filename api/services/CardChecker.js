@@ -294,30 +294,82 @@ class CardChecker {
       const { proxy, proxyStr } = this._getProxy();
 
       try {
-        const result = await provider.verify(card, proxyStr);
-        this._recordOutcome({ providerKey: currentKey, health, proxy, t0, result });
+  const result = await provider.verify(card, proxyStr);
+  this._recordOutcome({ providerKey: currentKey, health, proxy, t0, result });
 
-        let voided = false;
-        const paymentId =
-          result.raw?.id || result.raw?.paymentId || result.raw?.transId;
+  let voided = false;
+  const paymentId = result.raw?.id || result.raw?.paymentId || result.raw?.transId;
 
-        if (result.success && paymentId && typeof provider.voidTransaction === 'function') {
-          try {
-            const voidResult = await provider.voidTransaction(paymentId, proxyStr);
-            voided = voidResult.success;
-          } catch {}
-        }
+  if (result.success && paymentId && typeof provider.voidTransaction === 'function') {
+    try {
+      const voidResult = await provider.voidTransaction(paymentId, proxyStr);
+      voided = voidResult.success;
+    } catch {}
+  }
 
-        return {
-          ...result,
-          provider: provider.name,
-          providerKey: currentKey,
-          actionType: 'verify',
-          duration: Date.now() - startTime,
-          tried: [...tried],
-          proxy: proxy ? `${proxy.host}:${proxy.port}` : null,
-          voided,
-        };
+  // ⭐ BAŞARILI → return
+  if (result.success) {
+    return {
+      ...result,
+      provider: provider.name,
+      providerKey: currentKey,
+      actionType: 'verify',
+      duration: Date.now() - startTime,
+      tried: [...tried],
+      proxy: proxy ? `${proxy.host}:${proxy.port}` : null,
+      voided,
+    };
+  }
+
+  // ⭐ BAŞARISIZ — failover denenmeli mi?
+  // ⭐ BAŞARISIZ — failover denenmeli mi?
+  const FAILOVER_ON_DECLINE = new Set([
+    'declined',
+    'do_not_honor',
+    'restricted_card',
+    'currency_mismatch',
+    'unknown_response',
+    'invalid_response',
+    'cvv_mismatch',
+    'avs_mismatch',
+    'avs_rejected',
+    'cvv_rejected',
+    // ⭐ YENİ: $0 auth desteklenmeyen merchant
+    'invalid_amount',
+    'zero_auth_unsupported',
+    // ⭐ YENİ: provider config/auth hataları
+    'invalid_payment_method',
+    'token_failed',
+    'token_already_used',
+    'invalid_card_type',
+    'invalid_expiry',
+    'invalid_pan',
+  ]);
+
+  if (FAILOVER_ON_DECLINE.has(result.reason)) {
+    console.log(
+      `[CHECK] ${currentKey} declined (${result.reason}) → failover deneniyor`
+    );
+    lastError = result.message || result.reason;
+    lastReason = result.reason;
+    lastProviderKey = currentKey;
+
+    const fallbacks = this._getFallbacks([...tried], IS_DEV);
+    const nextKey = fallbacks.find((k) => !tried.has(k));
+    if (nextKey) { currentKey = nextKey; continue; }
+  }
+
+  // Failover edilemeyen (definitive) decline — return
+  return {
+    ...result,
+    provider: provider.name,
+    providerKey: currentKey,
+    actionType: 'verify',
+    duration: Date.now() - startTime,
+    tried: [...tried],
+    proxy: proxy ? `${proxy.host}:${proxy.port}` : null,
+    voided,
+  };
       } catch (e) {
         const { reason, isInternal, isNetwork } = this._classifyAndLog(e, currentKey);
 

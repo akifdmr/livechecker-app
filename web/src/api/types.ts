@@ -208,6 +208,8 @@ export interface BalanceResult {
   attempts: any[];
   duration: number | null;
   raw: any;
+   merchantId?: string | null;
+  merchantName?: string | null;
 }
 
 export type ChargeOperation = 'live_check' | 'preauth' | 'sale';

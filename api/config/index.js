@@ -81,16 +81,17 @@ module.exports = {
   // ----------------------------------------------------------
   DEV_PROVIDER_PRIORITY: ['clover3', 'authorize-hamza'],
 
+// apps/api/config.js
 LIVE_CHECK: {
-  provider: 'SNSAUTO',                             // ⭐ default
-  providerPriority: ['SNSAUTO', 'authorize-hamza', 'clover3'],
+  provider: 'clover3',
+  providerPriority: ['clover3', 'authorize-hamza', 'SNSAUTO'],   // ⭐ clover3 önce
   enableFailover: true,
   preferResinWhenNoCvv: true,
 },
 
 BALANCE_CHECK: {
   provider: 'clover3',
-  providerPriority: ['clover3', 'SNSAUTO', 'authorize-hamza'],   // ⭐ SNSAUTO eklendi
+  providerPriority: ['clover3', 'authorize-hamza', 'SNSAUTO'],
   enableFailover: true,
   authAmount: 1.0,
   refundAmount: 0.3,
@@ -228,7 +229,7 @@ BALANCE_CHECK: {
   type: 'clover',
   name: 'HamzaMedine',
   currency: 'USD',  // TODO: Charge 400 derse CAD dene
-
+    zeroAuth: true,           // ⭐ $0 auth destekliyor (test edilmedi — muhtemelen evet)
   tokenUrl: 'https://token.clover.com/v1/tokens',
   chargeUrl: 'https://scl.clover.com/v1/charges',
 
@@ -293,7 +294,7 @@ BALANCE_CHECK: {
         type: 'clover',
         name: 'SNSAUTO (S&S Auto express)',
         currency: envOr('CLOVER_SNS_CURRENCY', 'CAD'),  // ⭐ Curl ile doğrulandı
-
+    zeroAuth: false,           // ⭐ $0 auth destekliyor (test edilmedi — muhtemelen evet)
         tokenUrl: 'https://token.clover.com/v1/tokens',
         chargeUrl: 'https://scl.clover.com/v1/charges',
 
