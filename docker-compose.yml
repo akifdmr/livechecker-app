@@ -1,65 +1,76 @@
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: pos-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: posapp
-      POSTGRES_PASSWORD: posapp_dev_change_me
-      POSTGRES_DB: posdb
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-posapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the project .env file}
+      POSTGRES_DB: ${POSTGRES_DB:-posdb}
     volumes:
       - pos_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U posapp -d posdb"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 20
+      retries: 12
+      start_period: 10s
 
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
+    restart: unless-stopped
+    init: true
     env_file:
-      - ./api/.env
+      - path: ./api/.env
+        required: false
     environment:
       NODE_ENV: production
       APP_ENV: production
       PORT: 3000
-      DATABASE_URL: postgresql://posapp:posapp_dev_change_me@postgres:5432/posdb
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:?set ADMIN_EMAIL}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
-      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
-      MONERIS_ENABLED: ${MONERIS_ENABLED:-false}
-      MONERIS_ENVIRONMENT: ${MONERIS_ENVIRONMENT:-sandbox}
-      MONERIS_CLIENT_ID: ${MONERIS_CLIENT_ID:-}
-      MONERIS_CLIENT_SECRET: ${MONERIS_CLIENT_SECRET:-}
-      MONERIS_API_KEY: ${MONERIS_API_KEY:-}
-      MONERIS_MERCHANT_ID: ${MONERIS_MERCHANT_ID:-}
-      AUTHORIZE_API_LOGIN_ID: ${AUTHORIZE_API_LOGIN_ID:-}
-      AUTHORIZE_TRANSACTION_KEY: ${AUTHORIZE_TRANSACTION_KEY:-}
-      CLOVER_MERCHANT_ID: ${CLOVER_MERCHANT_ID:-}
-      CLOVER_PUBLIC_KEY: ${CLOVER_PUBLIC_KEY:-}
-      CLOVER_PRIVATE_KEY: ${CLOVER_PRIVATE_KEY:-}
-      CLOVER_ECOMMERCE_PRIVATE_KEY: ${CLOVER_ECOMMERCE_PRIVATE_KEY:-}
-      CLOVER_API_TOKEN: ${CLOVER_API_TOKEN:-}
-    expose:
-      - "3000"
+      # Force the compose database settings over any DATABASE_URL in api/.env.
+      DATABASE_URL: ""
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-posapp}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the project .env file}
+      PGDATABASE: ${POSTGRES_DB:-posdb}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the project .env file}
+      CVV_SALT: ${CVV_SALT:?Set CVV_SALT in the project .env file}
+      PROCESSOR_VAULT_KEY: ${PROCESSOR_VAULT_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   web:
     build:
       context: .
       dockerfile: Dockerfile.web
+    restart: unless-stopped
+    init: true
     ports:
-      - "8080:80"
+      - "${WEB_PORT:-8080}:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   pos_pgdata:
