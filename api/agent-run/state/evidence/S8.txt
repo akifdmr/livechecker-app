@@ -1,0 +1,3 @@
+DONE_AT=2026-10-25T20:02:48+03:00
+STEP=S8
+NOTE=S8 6 API tests pass; syntax checks pass; web build passes; DB/provider sandbox NOT RUN; raw-card live/dead and automatic over-auth sale tasks excluded by AGENTS.md; pre-existing legacy raw-card routes/data not modified

@@ -1,0 +1,9 @@
+INTEGRATION (zorunlu):
+- Mevcut klasör/yapıyı silme, rewrite etme, format storm yapma.
+- Stripe / Authorize.net / Clover client varsa REUSE et; duplicate factory yok.
+- Yeni kod: features/payments veya mevcut payments/billing klasörüne entegre.
+- MockProvider yasak.
+- Breaking rename yok; public API/route varsa üzerine endpoint ekle.
+- Migration ekle, mevcut tabloları drop etme; alter/add only.
+- UI mevcut design system/layout/nav’a ekle, yeni theme yok.
+- Her adım bitince: DONE + changed paths + “mevcut X reuse edildi”.

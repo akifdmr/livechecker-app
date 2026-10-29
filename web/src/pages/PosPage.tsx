@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { posApi } from '../api/pos';
 import { useAuthStore } from '../stores/authStore';
-import { getPreferredPosProvider, setPreferredPosProvider } from '../utils/posProviderPreference';
 
 const operations = [
   { key: 'sale', label: '💰 Sale', permission: 'payments.sale' },
@@ -20,6 +19,8 @@ function transactionStatus(status: string, operation: string) {
   if (s === 'voided')    return 'Provizyon iptal edildi';
   if (s === 'declined')  return 'Provider işlemi reddetti';
   if (s === 'pending')   return 'Terminalde kart işlemi bekleniyor';
+  if (s === 'requires_action' || s === 'requires_confirmation') return 'Provider doğrulaması gerekiyor';
+  if (s === 'processing') return 'Provider işlemi sürdürüyor';
   if (s === 'canceled' || s === 'cancelled') return 'İşlem iptal edildi';
   if (s === 'error')     return 'Provider hatası';
   return status || 'Durum bilinmiyor';
@@ -45,10 +46,11 @@ function actionError(error: any) {
 const isApproved = (s?: string) =>
   ['approved', 'captured', 'refunded'].includes(String(s || '').toLowerCase());
 const isPending = (s?: string) =>
-  String(s || '').toLowerCase() === 'pending';
+  ['pending', 'requires_action', 'requires_confirmation', 'processing'].includes(String(s || '').toLowerCase());
 
 export default function PosPage() {
   const userId = useAuthStore((state) => state.user?.id);
+  const isAdmin = useAuthStore((state) => state.isAdmin)();
   const [providers, setProviders] = useState<any[]>([]);
   const [enrollments, setEnrollments] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -75,8 +77,7 @@ export default function PosPage() {
       setEnrollments(e.enrollments || []);
       setTransactions(t.transactions || []);
       if (!provider && p.providers?.length) {
-        const preferred = getPreferredPosProvider(userId);
-        const initial = p.providers.find((item: any) => item.key === preferred) || p.providers[0];
+        const initial = p.providers[0];
         setProvider(initial.key);
         if (initial.defaultCurrency) setCurrency(initial.defaultCurrency);
       }
@@ -160,7 +161,7 @@ export default function PosPage() {
     setActionBusy(id);
     setError('');
     try {
-      const r = await posApi.action(id, { operation: op, amount });
+      const r = await posApi.action(id, { operation: op, amount, captureMode: op === 'capture' ? 'FULL_AUTH' : undefined });
       setResult(r);
       await load();
     } catch (e: any) {
@@ -195,14 +196,13 @@ export default function PosPage() {
 
           <div className="grid gap-3 md:grid-cols-2">
             <label className="text-xs text-gray-400">
-              Provider
-              <select
+              {isAdmin ? 'Provider' : 'Varsayılan provider'}
+              {isAdmin ? <select
                 value={provider}
                 onChange={(e) => {
                   const key = e.target.value;
                   const next = providers.find((p) => p.key === key);
                   setProvider(key);
-                  setPreferredPosProvider(userId, key);
                   setEnrollmentId('');
                   if (next?.defaultCurrency) setCurrency(next.defaultCurrency);
                   if (next?.capabilities?.preAuthorization === false) setOperation('sale');
@@ -215,7 +215,7 @@ export default function PosPage() {
                     {p.name || p.key}
                   </option>
                 ))}
-              </select>
+              </select> : <div className="w-full px-3 py-2 mt-1 text-sm text-white border rounded-md border-white/10 bg-black/30">{providerInfo?.name || 'Yönetici provider ayarı yapmalı'}</div>}
             </label>
 
             <label className="text-xs text-gray-400">
@@ -333,7 +333,7 @@ export default function PosPage() {
               >
                 <div className="font-semibold">
                   {pending
-                    ? 'Ödeme terminale gönderildi; kart işlemi bekleniyor'
+                    ? result.actionRequired ? 'Provider kimlik doğrulaması bekleniyor' : 'Ödeme terminale gönderildi; kart işlemi bekleniyor'
                     : success
                     ? 'İşlem provider tarafından onaylandı'
                     : 'İşlem tamamlanamadı'}
@@ -364,6 +364,11 @@ export default function PosPage() {
                 )}
                 {result.persistenceWarning && (
                   <div className="mt-2 font-medium">{result.persistenceWarning}</div>
+                )}
+                {result.actionRequired && result.redirectUrl && (
+                  <a href={result.redirectUrl} className="mt-3 inline-flex rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-white" rel="noreferrer">
+                    Provider doğrulamasına devam et
+                  </a>
                 )}
               </div>
             );

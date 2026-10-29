@@ -13,7 +13,8 @@
     "start": "node app.js",
     "restart": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true; node app.js",
     "migrate": "node migrate.js",
-    "setup": "node setup-db.js"
+    "setup": "node setup-db.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",

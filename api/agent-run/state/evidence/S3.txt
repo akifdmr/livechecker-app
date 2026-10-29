@@ -1,0 +1,3 @@
+DONE_AT=2026-10-25T20:02:47+03:00
+STEP=S3
+NOTE=S3 existing provider factory reused; default token provider is server-side; provider results sanitized and Stripe hosted redirect status handled

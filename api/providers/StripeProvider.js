@@ -19,19 +19,100 @@ class StripeProvider extends BaseProvider {
     return Math.round(n * 100);
   }
 
+  async createSubscriptionCheckoutSession({ customerEmail, userId } = {}) {
+    const unitAmount = Number(process.env.STRIPE_SUBSCRIPTION_UNIT_AMOUNT);
+    const currency = String(process.env.STRIPE_SUBSCRIPTION_CURRENCY || 'usd').toLowerCase();
+    const productName = String(process.env.STRIPE_SUBSCRIPTION_PRODUCT_NAME || '').trim();
+    const interval = String(process.env.STRIPE_SUBSCRIPTION_INTERVAL || 'month').toLowerCase();
+    const intervalCount = Number(process.env.STRIPE_SUBSCRIPTION_INTERVAL_COUNT || 1);
+    const successUrl = process.env.STRIPE_CHECKOUT_SUCCESS_URL;
+    const cancelUrl = process.env.STRIPE_CHECKOUT_CANCEL_URL;
+
+    const validHttpsUrl = (value) => {
+      try { return new URL(value).protocol === 'https:'; }
+      catch { return false; }
+    };
+
+    if (!Number.isSafeInteger(unitAmount) || unitAmount <= 0) {
+      throw new Error('PROVIDER_ERROR: STRIPE_SUBSCRIPTION_UNIT_AMOUNT pozitif tam sayı olmalı (minor units)');
+    }
+    if (!/^[a-z]{3}$/.test(currency)) {
+      throw new Error('PROVIDER_ERROR: STRIPE_SUBSCRIPTION_CURRENCY geçersiz');
+    }
+    if (!productName || productName.length > 120) {
+      throw new Error('PROVIDER_ERROR: STRIPE_SUBSCRIPTION_PRODUCT_NAME gerekli (en fazla 120 karakter)');
+    }
+    if (!['day', 'week', 'month', 'year'].includes(interval) ||
+        !Number.isSafeInteger(intervalCount) || intervalCount < 1 || intervalCount > 12) {
+      throw new Error('PROVIDER_ERROR: Stripe recurring interval ayarları geçersiz');
+    }
+    if (!validHttpsUrl(successUrl) || !validHttpsUrl(cancelUrl)) {
+      throw new Error('PROVIDER_ERROR: HTTPS STRIPE_CHECKOUT_SUCCESS_URL ve STRIPE_CHECKOUT_CANCEL_URL gerekli');
+    }
+
+    const session = await this._client().checkout.sessions.create({
+      mode: 'subscription',
+      ui_mode: 'hosted_page',
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      line_items: [{
+        price_data: {
+          currency,
+          product_data: { name: productName },
+          unit_amount: unitAmount,
+          recurring: { interval, interval_count: intervalCount },
+        },
+        quantity: 1,
+      }],
+      billing_address_collection: 'auto',
+      payment_method_collection: 'always',
+      allow_promotion_codes: false,
+      submit_type: 'auto',
+      integration_identifier: 'hosted_mobile_app_0002',
+      origin_context: 'mobile_app',
+      customer_email: customerEmail || undefined,
+      client_reference_id: userId == null ? undefined : String(userId),
+      metadata: userId == null ? undefined : { app_user_id: String(userId) },
+    });
+
+    return { id: session.id, url: session.url };
+  }
+
+  async getSubscriptionCheckoutStatus(sessionId, userId) {
+    if (typeof sessionId !== 'string' || !/^cs_(?:test|live)_[A-Za-z0-9]+$/.test(sessionId)) {
+      throw new Error('PROVIDER_ERROR: Checkout session ID geçersiz');
+    }
+    const session = await this._client().checkout.sessions.retrieve(sessionId);
+    const ownerId = session.client_reference_id || session.metadata?.app_user_id;
+    if (String(ownerId || '') !== String(userId)) {
+      const error = new Error('Checkout oturumu bulunamadı');
+      error.statusCode = 404;
+      throw error;
+    }
+    return {
+      status: session.status,
+      paymentStatus: session.payment_status,
+      subscriptionCreated: Boolean(session.subscription),
+    };
+  }
+
   _result(intent, action) {
     const ok = ['succeeded','requires_capture'].includes(intent.status);
+    const nextAction = intent.next_action || null;
+    const redirectUrl = nextAction?.redirect_to_url?.url || null;
     return {
       success: ok,
       action,
       status: intent.status,
+      requiresAction: intent.status === 'requires_action' || intent.status === 'requires_confirmation',
+      actionType: nextAction?.type || null,
+      redirectUrl,
       reason: ok ? 'approved' : (intent.last_payment_error?.code || intent.status),
       transactionId: intent.id,
       paymentIntentId: intent.id,
       authCode: null,
       providerCode: intent.last_payment_error?.decline_code || null,
       message: intent.last_payment_error?.message || null,
-      clientSecret: intent.client_secret || null,
       raw: {
         id: intent.id,
         status: intent.status,
@@ -39,6 +120,7 @@ class StripeProvider extends BaseProvider {
         amount_received: intent.amount_received,
         currency: intent.currency,
         payment_method: intent.payment_method,
+        next_action_type: nextAction?.type || null,
         last_payment_error: intent.last_payment_error || null,
       },
     };
@@ -138,6 +220,15 @@ class StripeProvider extends BaseProvider {
         cancellation_reason: extra.reason || undefined,
       }, { idempotencyKey: extra.idempotencyKey || undefined });
       return this._result(intent, 'void');
+    } catch (err) {
+      return this._error(err);
+    }
+  }
+
+  async getPaymentStatus(paymentId) {
+    if (!paymentId) throw new Error('PROVIDER_ERROR: paymentId gerekli');
+    try {
+      return this._result(await this._client().paymentIntents.retrieve(paymentId), 'status');
     } catch (err) {
       return this._error(err);
     }

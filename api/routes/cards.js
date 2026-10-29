@@ -910,7 +910,7 @@ module.exports = (deps) => {
       let query = `
         SELECT 
           lcf.*,
-          u.email AS checked_by_email,
+          u.username AS checked_by_username,
           COALESCE(cc.check_count, 0) AS check_count_from_checks,
           cc.last_checked_at AS last_checked_at_from_checks,
           COALESCE(agg.total_auth, 0)      AS total_auth,
@@ -1037,7 +1037,7 @@ module.exports = (deps) => {
           ...card,
           check_count: checkCount,
           last_checked_at: lastCheckedAt,
-          checked_by_email: card.checked_by_email || null,
+          checked_by_username: card.checked_by_username || null,
           status: card.status || 'LIVE',
           last_provider: card.last_provider || null,
           total_auth: parseFloat(card.total_auth) || 0,
@@ -1138,7 +1138,7 @@ module.exports = (deps) => {
       const cardResult = await db.pool.query(
         `SELECT 
            lcf.*,
-           u.email AS checked_by_email,
+           u.username AS checked_by_username,
            COALESCE(cc.check_count, 0) AS check_count_from_checks,
            cc.last_checked_at AS last_checked_at_from_checks,
            COALESCE(agg.total_auth, 0)      AS total_auth,
@@ -1210,7 +1210,7 @@ module.exports = (deps) => {
         ...card,
         check_count: checkCount,
         last_checked_at: lastCheckedAt,
-        checked_by_email: card.checked_by_email || null,
+        checked_by_username: card.checked_by_username || null,
         status: card.status || 'LIVE',
         last_provider: card.last_provider || null,
         total_auth: parseFloat(card.total_auth) || 0,

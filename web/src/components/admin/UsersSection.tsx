@@ -23,8 +23,8 @@ export default function UsersSection({
     }
   }
 
-  async function handleDelete(id: number, email: string) {
-    if (!confirm(`${email} silinsin mi?`)) return;
+  async function handleDelete(id: number, username: string) {
+    if (!confirm(`${username} silinsin mi?`)) return;
     try {
       await adminApi.deleteUser(id);
       await loadUsers();
@@ -53,13 +53,13 @@ export default function UsersSection({
             className="bg-bg-input border border-border rounded-md p-3 flex items-center justify-between"
           >
             <div>
-              <div className="text-info text-sm font-mono">{u.email}</div>
+              <div className="text-info text-sm font-mono">{u.username || `#${u.id}`}</div>
               <div className="text-[10px] text-gray-500 mt-1">
                 {u.role} | Kart: {u.card_count} | Check: {u.check_count}
               </div>
             </div>
             <button
-              onClick={() => handleDelete(u.id, u.email)}
+              onClick={() => handleDelete(u.id, u.username || `#${u.id}`)}
               className="bg-dead hover:bg-red-700 text-white px-3 py-1 rounded text-xs"
             >
               Sil

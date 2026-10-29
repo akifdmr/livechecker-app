@@ -221,12 +221,12 @@ export default function CardItem({
       )}
 
       {/* ⭐ 9. KİM CHECK ETTİ */}
-      {card.checked_by_email && (
+      {card.checked_by_username && (
         <span
           className="text-[9px] text-info/70 truncate max-w-[90px] whitespace-nowrap"
-          title={`Check eden: ${card.checked_by_email}`}
+          title={`Check eden: ${card.checked_by_username}`}
         >
-          👤 {card.checked_by_email.split('@')[0]}
+          👤 {card.checked_by_username}
         </span>
       )}
 

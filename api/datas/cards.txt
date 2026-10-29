@@ -1,7 +1,3 @@
-
-
-
-
 5549580100913761|10/28|950|Loyda Rodriguez|237 Citation dr|Jarrell|Texas|76537|US|15122968096|silvaeugenio38.es@gmail.com|107.127.0.59
 4003901019346681|11|28|202|Timothy Jones|1738 Trainer Avenue|Peoria|Illinois|61602|US|+1 505-681-9409|shannond49@outlook.com
 4427422133324528|06|29|732|Jacob Figueroa|590 Ben Street|East Lansing|Michigan|48823|US|+1 305-664-6967|ewalker@gmail.com 
@@ -15,4 +11,13 @@
 5268090147725359|04/28|381|Denise|Flack|20761 Duncan Way 3|Langley |BC|V3A9L4|7788620755|deniseflack55@gmail.com|CA
 5351420136238650|05/29|886|Tasos|Theodosiadis|Thihis 1 Thessaloniki||55133|6944266355|ana.theod1991@gmail.com|GR
 5593213867771041|06/29|539|Meagan|Tavares|21768 117 Avenue |Maple|Ridge|BC|V2X 2J5|16048128824|meagan.priceleibenzeder@gmail.com|CA
-5514320000381251|11/29|671|Alice C|Tackett|389 Caney Frk|Belfry|KY|41514-7837|(606) 625-0239|twotackett@yahoo.com|US
+5514320000381251|11/29|671|Alice C|Tackett|389 Caney Frk|Belfry|KY|41514-7837|(606) 625-0239|twotackett@yahoo.com|
+4060490117122780|11/29|486|,Audrey|Farley|4526 Marseille Dr|Pensacola|FL|32505|8504909184|farley4526@aol.com|US
+4036230901228570|10/27|552|Jennie|Young|1022 New Providence Pass|Madison|TN|37115-2983|16159447829|jenniebyoung@att.net|US
+4543147117968102|04/27|656|canan|dogan|ismetpasa mahallesi metin oktay caddesi 44. sokak troas park sitesi Merkez|TR17|17000|5427728873|canandogan1313@gmail.com|TR
+4516076006045636|04/29|214|Arno|Markus|3616 Wellesley Avenue|Nanaimo|BC|V9T 2B2|12506180502|arno@icareersolutions.com|CA
+4525501041302402|02/29|845|Erica|Lu|3240 Kitchener Street |Vancouver|BC|V5K 3G2|7785128720|ericalu94@msn.com|CA
+4147400522639671|09/31|327|Diamond|Roberts|21130 Thomas Drive|Bend|OR|5418480165|97702|dlroberts23@gmail.com|US
+4266841514651320|03/30|082|Gregory|Witherspoon|345 Denrose Dr|Buffalo|NY|14228|7169126836|gpwitherspoon@gmail.com|US
+4269307199558088|07/28|510|Amy|Mack|22 CHERRY AVE|CORNWALL ON|HUDSON|NY|12520|19732948267|amykmack@gmail.com|US|96.248.62.245|Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36
+

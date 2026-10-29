@@ -100,7 +100,7 @@ export default function Popup() {
 
       {user && (
         <div className="mb-3 px-2 py-1.5 rounded bg-[#111] text-[10px] text-gray-400">
-          👤 {user.email}
+          👤 {user.username}
         </div>
       )}
 

@@ -1,0 +1,3 @@
+DONE_AT=2026-10-25T20:02:47+03:00
+STEP=S2
+NOTE=S2 auth helpers, atomic credit ledger, admin-only audited settings, and non-secret fee access added

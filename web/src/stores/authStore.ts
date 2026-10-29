@@ -12,7 +12,10 @@ declare const chrome: any;
 // ============================================================
 export interface User {
   id: number;
-  email: string;
+  username: string;
+  email?: string | null;
+  display_name?: string | null;
+  credits?: number;
   role: 'user' | 'checker' | 'admin' | 'operator' | 'finance' | 'viewer';
   permissions?: string[];
 }
@@ -22,6 +25,7 @@ interface AuthState {
   user: User | null;
   backendUrl: string;
   login: (token: string, user: User, backendUrl?: string) => void;
+  updateUser: (user: Partial<User>) => void;
   logout: () => void;
   isAdmin: () => boolean;
   hasPermission: (permission: string) => boolean;
@@ -101,6 +105,8 @@ export const useAuthStore = create<AuthState>()(
 
         set({ token, user, backendUrl });
       },
+
+      updateUser: (user) => set((state) => ({ user: state.user ? { ...state.user, ...user } : null })),
 
       // --------------------------------------------------------
       // LOGOUT

@@ -17,37 +17,35 @@ dotenv.config({
 });
 
 // ============================================================
-// BAĞLANTI — DATABASE_URL varsa onu, yoksa PG* env'lerini kullan
+// BAĞLANTI — local host dış URL, Render container iç URL, Compose kendi postgres servisi.
 // ============================================================
-function buildPoolConfig() {
-  // 1) DATABASE_URL öncelikli (varsa)
-  if (process.env.DATABASE_URL) {
-    const url = process.env.DATABASE_URL;
-    const needsSsl =
-      url.includes('sslmode=require') ||
-      url.includes('aivencloud.com') ||
-      process.env.PGSSLMODE === 'require';
+function buildUrlPoolConfig(url, sslPolicy = 'auto') {
+  const urlRequiresSsl = url.includes('sslmode=require');
+  const needsSsl = sslPolicy === 'require' || (sslPolicy === 'auto' && (
+    urlRequiresSsl ||
+    url.includes('aivencloud.com') ||
+    process.env.PGSSLMODE === 'require'
+  ));
 
-    // pg-connection-string maps sslmode=require to certificate verification,
-    // which rejects Aiven's chain in this app's configured TLS mode. Let the
-    // explicit SSL object below control verification for these hosted URLs.
-    let connectionString = url;
-    if (needsSsl) {
-      const parsedUrl = new URL(url);
-      parsedUrl.searchParams.delete('sslmode');
-      connectionString = parsedUrl.toString();
-    }
-
-    return {
-      connectionString,
-      ssl: needsSsl ? { rejectUnauthorized: false } : false,
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-    };
+  // Strip sslmode so node-postgres uses this explicit TLS policy instead of
+  // replacing it with certificate verification settings from the URL parser.
+  let connectionString = url;
+  if (needsSsl || (sslPolicy === 'disable' && urlRequiresSsl)) {
+    const parsedUrl = new URL(url);
+    parsedUrl.searchParams.delete('sslmode');
+    connectionString = parsedUrl.toString();
   }
 
-  // 2) PG* env değişkenleri (Aiven veya lokal)
+  return {
+    connectionString,
+    ssl: needsSsl ? { rejectUnauthorized: false } : false,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  };
+}
+
+function buildPgPoolConfig() {
   const host = process.env.PGHOST || process.env.PGHOST_LOCAL || 'localhost';
   const isAiven = host.includes('aivencloud.com');
 
@@ -63,6 +61,33 @@ function buildPoolConfig() {
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
   };
+}
+
+function buildPoolConfig() {
+  const mode = String(process.env.DB_CONNECTION_MODE || '').trim().toLowerCase();
+  if (mode === 'compose') return buildPgPoolConfig();
+
+  if (mode === 'external' || mode === 'internal') {
+    const variable = mode === 'internal' ? 'DB_INTERNAL_URL' : 'DB_EXTERNAL_URL';
+    const url = process.env[variable];
+    if (!url) throw new Error(`${variable} is required when DB_CONNECTION_MODE=${mode}`);
+    return buildUrlPoolConfig(url, mode === 'external' ? 'require' : 'disable');
+  }
+
+  if (mode && mode !== 'legacy') {
+    throw new Error('DB_CONNECTION_MODE must be external, internal, compose, or legacy');
+  }
+
+  // Host-based local development uses Render's external URL. Dockerfile.api
+  // selects internal explicitly, while Compose selects its private postgres service.
+  if (!mode && process.env.RENDER === 'true' && process.env.DB_INTERNAL_URL) {
+    return buildUrlPoolConfig(process.env.DB_INTERNAL_URL, 'disable');
+  }
+  if (!mode && process.env.DB_EXTERNAL_URL) {
+    return buildUrlPoolConfig(process.env.DB_EXTERNAL_URL, 'require');
+  }
+  if (process.env.DATABASE_URL) return buildUrlPoolConfig(process.env.DATABASE_URL);
+  return buildPgPoolConfig();
 }
 
 const pool = new Pool(buildPoolConfig());
@@ -360,17 +385,17 @@ const db = {
   // ----------------------------------------------------------
   // USER HELPERS
   // ----------------------------------------------------------
-  async findUserByEmail(email) {
+  async findUserByUsername(username) {
     const res = await pool.query(
-      'SELECT id, email, role, password_hash, is_active FROM users WHERE email = $1',
-      [email]
+      'SELECT id, username, email, role, password_hash, is_active, credits, display_name FROM users WHERE lower(username) = lower($1)',
+      [username]
     );
     return res.rows[0] || null;
   },
 
   async findUserById(id) {
     const res = await pool.query(
-      'SELECT id, email, role, is_active FROM users WHERE id = $1',
+      'SELECT id, username, email, role, is_active, display_name, created_at, last_login FROM users WHERE id = $1',
       [id]
     );
     return res.rows[0] || null;

@@ -1,12 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, requirePermission } = require('../auth');
+const { CreditsSettingsService } = require('../services/CreditsSettingsService');
+const financeService = new CreditsSettingsService();
 
 module.exports = (deps) => {
   const { paymentService, dbService, providers } = deps;
 
   router.get('/pos/providers', authMiddleware, requirePermission('providers.view'), async (req, res) => {
+    const defaultProvider = req.user.role === 'admin' ? null : await financeService.getDefaultProvider();
+    if (req.user.role !== 'admin' && !defaultProvider) return res.json({ providers: [] });
     const data = Object.entries(providers || {}).flatMap(([key, p]) => {
+      if (defaultProvider && key !== defaultProvider) return [];
       const rawCapabilities = typeof p.capabilities === 'function'
         ? p.capabilities()
         : p.capabilities || {};
@@ -40,7 +45,7 @@ module.exports = (deps) => {
       const enrollments = await dbService.listEnrollments(req.user.id);
       res.json({ enrollments: enrollments.map(({ external_payment_method_id: token, ...row }) => ({
         ...row,
-        payment_method_hint: token ? String(token).slice(-8).padStart(12, '*') : null,
+        payment_method_hint: token ? '••••••••' : null,
       })) });
     } catch (e) {
       console.error('[POS] listEnrollments hatası:', e.message);
@@ -73,9 +78,8 @@ module.exports = (deps) => {
       }
 
       const paymentMethodToken = String(externalPaymentMethodId).trim();
-      const tokenDigits = paymentMethodToken.replace(/\D/g, '');
       if (paymentMethodToken.length > 2048 || paymentMethodToken.includes('|') ||
-          (/^[\d\s-]+$/.test(paymentMethodToken) && tokenDigits.length >= 12 && tokenDigits.length <= 19)) {
+          /(?:\d[ -]?){12,19}/.test(paymentMethodToken)) {
         return res.status(400).json({ error: 'Kart numarası değil, provider tarafından üretilmiş token girin' });
       }
       if (last4 != null && !/^\d{4}$/.test(String(last4))) return res.status(400).json({ error: 'last4 dört rakam olmalı' });
@@ -107,7 +111,7 @@ module.exports = (deps) => {
         provider: enrollment.provider,
         last4: enrollment.last4
       });
-      res.status(201).json({ enrollment: { ...enrollment, external_payment_method_id: undefined, payment_method_hint: String(enrollment.external_payment_method_id).slice(-8).padStart(12, '*') } });
+      res.status(201).json({ enrollment: { ...enrollment, external_payment_method_id: undefined, payment_method_hint: '••••••••' } });
     } catch (e) {
       res.status(400).json({ error: e.message });
     }
@@ -132,7 +136,7 @@ module.exports = (deps) => {
       const { external_payment_method_id: token, ...enrollment } = q.rows[0];
       res.json({ enrollment: {
         ...enrollment,
-        payment_method_hint: token ? String(token).slice(-8).padStart(12, '*') : null,
+        payment_method_hint: token ? '••••••••' : null,
       } });
     } catch (e) {
       res.status(400).json({ error: e.message });
@@ -166,10 +170,18 @@ module.exports = (deps) => {
       const allowed = ['sale','preauth'];
       if (!allowed.includes(operation)) return res.status(400).json({ error: 'Yeni işlem için sale/preauth seçin; capture/refund/void mevcut işlem kaydından yapılır.' });
 
-      const provider = providers[String(req.body.providerKey || '').toLowerCase()];
+      const defaultProvider = req.user.role === 'admin'
+        ? null
+        : await financeService.getDefaultProvider();
+      if (req.user.role !== 'admin' && !defaultProvider) {
+        return res.status(409).json({ code: 'PROVIDER_NOT_CONFIGURED', error: 'Yönetici varsayılan token tabanlı provider seçmelidir.' });
+      }
+      const providerKey = req.user.role === 'admin'
+        ? String(req.body.providerKey || '').toLowerCase()
+        : defaultProvider;
+      const provider = providers[providerKey];
       if (!provider) return res.status(400).json({ error: 'Provider bulunamadı' });
       const capabilities = typeof provider.capabilities === 'function' ? provider.capabilities() : {};
-      const providerKey = String(req.body.providerKey || '').toLowerCase();
       if (operation === 'preauth' && capabilities.preAuthorization === false) {
         return res.status(400).json({ error: `${provider.name} provizyon işlemini desteklemiyor.` });
       }
@@ -186,6 +198,9 @@ module.exports = (deps) => {
 
       let paymentMethodId = req.body.paymentMethodId;
       let enrollment = null;
+      if (req.user.role !== 'admin' && !req.body.enrollmentId) {
+        return res.status(400).json({ error: 'Ödeme için kendi kayıtlı token enrollment seçilmeli' });
+      }
       if (req.body.enrollmentId) {
         enrollment = await dbService.getEnrollmentById(Number(req.body.enrollmentId), req.user.id);
         if (!enrollment) return res.status(404).json({ error: 'Enrollment bulunamadı' });
@@ -199,9 +214,8 @@ module.exports = (deps) => {
         }
       } else {
         const token = String(paymentMethodId || '').trim();
-        const digits = token.replace(/\D/g, '');
         if (!token || token.length > 2048 || token.includes('|') ||
-            (/^[\d\s-]+$/.test(token) && digits.length >= 12 && digits.length <= 19)) {
+            /(?:\d[ -]?){12,19}/.test(token)) {
           return res.status(400).json({ error: 'Kart numarası değil, sağlayıcı tarafından üretilmiş ödeme tokenı kullanın.' });
         }
       }
@@ -214,7 +228,7 @@ module.exports = (deps) => {
         paymentMethodId,
         userId: req.user.id,
       });
-      res.status(result.success ? 200 : 422).json(result);
+      res.status(result.actionRequired ? 202 : result.success ? 200 : 422).json(result);
     } catch (e) {
       const unavailable = ['ENOTFOUND', 'EHOSTUNREACH', 'ETIMEDOUT', 'ECONNREFUSED'].includes(e.code);
       res.status(unavailable ? 503 : (e.statusCode || 400)).json({
@@ -227,6 +241,8 @@ module.exports = (deps) => {
   });
 
   router.post('/pos/transactions/:id/action', authMiddleware, async (req, res) => {
+    let captureFee = 0;
+    let captureFeeDebited = false;
     try {
       const operation = String(req.body?.operation || '');
       if (!['capture','refund','void'].includes(operation)) {
@@ -238,6 +254,21 @@ module.exports = (deps) => {
         : await dbService.getUserPermissions(req.user.id);
       if (req.user.role !== 'admin' && !permissions.includes(permission)) {
         return res.status(403).json({ error: `Yetki yok: ${permission}` });
+      }
+
+      if (operation === 'capture' && req.user.role !== 'admin') {
+        captureFee = await financeService.getFee('capture');
+        if (captureFee > 0) {
+          await financeService.spend({
+            userId: req.user.id,
+            amount: captureFee,
+            entryType: 'capture_fee',
+            referenceType: 'merchant_transaction',
+            referenceId: String(Number(req.params.id)),
+            idempotencyKey: `capture-fee-${req.requestId}`,
+          });
+          captureFeeDebited = true;
+        }
       }
 
       console.info('[PAYMENT]', JSON.stringify({
@@ -253,10 +284,18 @@ module.exports = (deps) => {
         transactionId: Number(req.params.id),
         operation,
         amount: req.body.amount,
+        captureMode: req.body.captureMode,
         reason: req.body.reason,
         idempotencyKey: req.body.idempotencyKey,
       });
-      res.status(result.success ? 200 : 422).json(result);
+      if (captureFeeDebited && !result.success && !result.actionRequired) {
+        await financeService.grant({
+          userId: req.user.id, amount: captureFee, entryType: 'adjustment',
+          referenceType: 'merchant_transaction', referenceId: String(Number(req.params.id)),
+          idempotencyKey: `capture-fee-refund-${req.requestId}`, createdBy: req.user.id,
+        });
+      }
+      res.status(result.actionRequired ? 202 : result.success ? 200 : 422).json(result);
     } catch (e) {
       console.warn('[PAYMENT]', JSON.stringify({
         requestId: req.requestId,

@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { authMiddleware } = require('../auth');
+const { authMiddleware, requireAdmin } = require('../auth');
 const { sleep } = require('../utils/sleep');
 const db = require('../db');                    // ← YENİ
+const { CreditsSettingsService } = require('../services/CreditsSettingsService');
+const financeService = new CreditsSettingsService();
 
 module.exports = (deps) => {
   const { binDb, loadBalancer, providers, proxyManager } = deps;   // ← deps'ten al
@@ -11,13 +13,25 @@ module.exports = (deps) => {
   // GET /bin/:bin — Tek BIN sorgu (kayıt yok)
   // ------------------------------------------------------------
   router.get('/bin/:bin', async (req, res) => {
+    if (!/^\d{6}$/.test(String(req.params.bin || ''))) {
+      return res.status(400).json({ error: 'Tam 6 haneli BIN gerekli' });
+    }
     const CONFIG = require('../config');
-    const result = await binDb.lookupWithFallback(
+    const data = await binDb.lookupWithFallback(
       req.params.bin,
       CONFIG.EXTERNAL_BIN_API
     );
-    if (!result) return res.status(404).json({ error: 'BIN bulunamadı' });
-    res.json(result);
+    if (!data) return res.status(404).json({ error: 'BIN bulunamadı' });
+    res.json({
+      bin: req.params.bin,
+      brand: data.brand || '',
+      type: data.type || '',
+      category: data.category || '',
+      issuer: data.issuer || '',
+      country: data.country || '',
+      isoCode2: data.isoCode2 || '',
+      isoCode3: data.isoCode3 || '',
+    });
   });
 
   // ------------------------------------------------------------
@@ -27,16 +41,16 @@ module.exports = (deps) => {
   const CONFIG = require('../config');
   const { bins } = req.body;
 
-  if (!Array.isArray(bins) || bins.length === 0) {
-    return res.status(400).json({ error: 'bins array gerekli' });
+  if (!Array.isArray(bins) || bins.length === 0 || bins.length > 200) {
+    return res.status(400).json({ error: '1 ile 200 arasında BIN girdisi gerekli' });
   }
 
-  if (req.user.role === 'checker' && (bins.length > 200 || bins.some((value) => !/^\d{6}$/.test(String(value).trim())))) {
-    return res.status(400).json({ error: 'Check kullanıcısı yalnızca en fazla 200 adet, tam 6 haneli BIN gönderebilir.' });
+  if (bins.some((value) => !/^\d{6}$/.test(String(value).trim()))) {
+    return res.status(400).json({ error: 'Yalnızca tam 6 haneli BIN metadata sorgulanabilir.' });
   }
 
   // ============================================================
-  // FLEXIBLE INPUT — Full kart satırı veya sadece BIN
+  // Exact six-digit BIN metadata only. Never parse card-number rows here.
   // ============================================================
   const parsedBins = [];
   const seen = new Set();
@@ -45,15 +59,8 @@ module.exports = (deps) => {
     const line = String(raw).trim();
     if (!line) continue;
 
-    let binCandidate = '';
-    if (line.includes('|')) binCandidate = line.split('|')[0];
-    else if (line.includes(' ')) binCandidate = line.split(/\s+/)[0];
-    else binCandidate = line;
-
-    const clean = binCandidate.replace(/\D/g, '').substring(0, 8);
-    if (clean.length < 6) continue;
-
-    const bin6 = clean.substring(0, 6);
+    const bin6 = line;
+    if (!/^\d{6}$/.test(bin6)) continue;
     if (seen.has(bin6)) continue;
     seen.add(bin6);
     parsedBins.push(bin6);
@@ -61,6 +68,26 @@ module.exports = (deps) => {
 
   if (parsedBins.length === 0) {
     return res.status(400).json({ error: 'Geçerli BIN bulunamadı' });
+  }
+
+  if (req.user.role !== 'admin') {
+    try {
+      const unitFee = await financeService.getFee('bin_check');
+      const totalFee = Math.round(unitFee * parsedBins.length * 100) / 100;
+      if (totalFee > 0) await financeService.spend({
+        userId: req.user.id,
+        amount: totalFee,
+        entryType: 'bin_check',
+        referenceType: 'bin_check',
+        referenceId: String(req.requestId || Date.now()),
+        idempotencyKey: `bin-check-${req.requestId || `${req.user.id}-${Date.now()}`}`,
+      });
+    } catch (error) {
+      return res.status(error.code === 'INSUFFICIENT_CREDITS' ? 402 : (error.statusCode || 409)).json({
+        error: error.code === 'INSUFFICIENT_CREDITS' ? 'Bu BIN sorgusu için yeterli krediniz yok' : error.message,
+        code: error.code || null,
+      });
+    }
   }
 
   console.log(`[BIN-CHECK] ${parsedBins.length} unique BIN sorgulanacak`);
@@ -87,7 +114,15 @@ module.exports = (deps) => {
             data.category || null,
             data.issuer || null,
             data.country || null,
-            JSON.stringify(data),
+            JSON.stringify({
+              brand: data.brand || null,
+              type: data.type || null,
+              category: data.category || null,
+              issuer: data.issuer || null,
+              country: data.country || null,
+              isoCode2: data.isoCode2 || null,
+              isoCode3: data.isoCode3 || null,
+            }),
           ]
         );
       } catch (dbErr) {
@@ -123,7 +158,7 @@ module.exports = (deps) => {
   // ------------------------------------------------------------
   // POST /provider/:key/:action
   // ------------------------------------------------------------
-  router.post('/provider/:key/:action', authMiddleware, async (req, res) => {
+  router.post('/provider/:key/:action', authMiddleware, requireAdmin, async (req, res) => {
     const CONFIG = require('../config');
     const { key, action } = req.params;
 

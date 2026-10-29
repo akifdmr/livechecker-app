@@ -1,5 +1,6 @@
 FROM node:22-alpine AS build
 WORKDIR /app
+ENV VITE_SIGNALR_URL=/hubs/messages
 
 COPY web/package*.json ./web/
 RUN npm --prefix web install

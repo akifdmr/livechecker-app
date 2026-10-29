@@ -6,13 +6,22 @@ export const adminApi = {
     return data;
   },
   users: async () => {
-    const { data } = await api.get('/admin/users');
-    return data.users;
+    const pageSize = 2000;
+    const { data: firstPage } = await api.get('/admin/users', { params: { limit: pageSize, offset: 0 } });
+    const users = [...firstPage.users];
+    for (let offset = pageSize; offset < firstPage.total; offset += pageSize) {
+      const { data } = await api.get('/admin/users', { params: { limit: pageSize, offset } });
+      users.push(...data.users);
+    }
+    return users;
   },
-  addUser: async (email: string, password: string, role: string) => {
-    const { data } = await api.post('/admin/users', { email, password, role });
+  userDetails: async (id: number) => (await api.get(`/admin/users/${id}/details`, { params: { limit: 500 } })).data,
+  addUser: async (username: string, password: string, role: string) => {
+    const { data } = await api.post('/admin/users', { username, password, role });
     return data;
   },
+  updateUser: async (id: number, payload: { username?: string; role?: string; is_active?: boolean; password?: string }) =>
+    (await api.patch(`/admin/users/${id}`, payload)).data.user,
   deleteUser: async (id: number) => {
     await api.delete(`/admin/users/${id}`);
   },
@@ -27,6 +36,19 @@ export const adminApi = {
     const { data } = await api.get(`/admin/users/${id}/subscription-prechecks`);
     return data.checks || [];
   },
+  settings: async () => (await api.get('/admin/settings')).data.settings,
+  saveSettings: async (settings: Record<string, unknown>) =>
+    (await api.put('/admin/settings', { settings })).data.settings,
+  providers: async () => (await api.get('/admin/providers')).data,
+  setDefaultProvider: async (key: string) =>
+    (await api.put(`/admin/providers/${encodeURIComponent(key)}`, { isDefault: true })).data,
+  grantCredits: async (input: { userId: number; amount: number; note?: string; idempotencyKey: string }) =>
+    (await api.post('/admin/credits', input)).data,
+  creditLedger: async (params: Record<string, unknown> = {}) =>
+    (await api.get('/admin/credits/ledger', { params })).data,
+  creditRequests: async () => (await api.get('/admin/credit-requests')).data.requests || [],
+  resolveCreditRequest: async (id: number, decision: 'approve' | 'reject', amount?: number) =>
+    (await api.post(`/admin/credit-requests/${id}/resolve`, { decision, amount })).data,
 };
 
 export const binHistoryApi = {

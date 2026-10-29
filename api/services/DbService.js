@@ -620,13 +620,14 @@ class DbService {
     }
   }
 
-  async createUser({ email, passwordHash, role = 'user' }) {
+  async createUser({ username, email = null, passwordHash, role = 'user' }) {
     try {
+      const normalizedUsername = String(username || email?.split('@')[0] || '').trim().toLowerCase();
       const res = await this.pool.query(
-        `INSERT INTO users (email, password_hash, role, created_at, updated_at)
-         VALUES ($1, $2, $3, NOW(), NOW())
-         RETURNING id, email, role`,
-        [email, passwordHash, role]
+        `INSERT INTO users (username, email, password_hash, role, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NOW(), NOW())
+         RETURNING id, username, email, role`,
+        [normalizedUsername, email, passwordHash, role]
       );
       return res.rows[0];
     } catch (e) {

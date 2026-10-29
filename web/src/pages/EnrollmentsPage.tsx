@@ -42,10 +42,9 @@ export default function EnrollmentsPage() {
     try {
       const provider = providers.find((p) => p.key === form.provider);
       const token = String(form.externalPaymentMethodId || '').trim();
-      const digitsOnly = token.replace(/\D/g, '');
       if (!provider) throw new Error('Token destekleyen provider seçin');
       if (!token) throw new Error('Provider token/payment method ID gerekli');
-      if (token.includes('|') || (/^[\d\s-]+$/.test(token) && digitsOnly.length >= 12 && digitsOnly.length <= 19)) {
+      if (token.includes('|') || /(?:\d[ -]?){12,19}/.test(token)) {
         throw new Error('Buraya kart numarası değil, provider tarafından üretilen token girin');
       }
       if (!/^\d{0,4}$/.test(String(form.last4 || ''))) throw new Error('Last 4 alanına en fazla 4 rakam girin');

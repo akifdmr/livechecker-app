@@ -10,7 +10,7 @@ export default function AddUserModal({
   onClose,
   onCreated,
 }: AddUserModalProps) {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'user' | 'admin'>('user');
   const [error, setError] = useState('');
@@ -18,14 +18,14 @@ export default function AddUserModal({
 
   async function handleSubmit() {
     setError('');
-    if (!email || !password) {
-      setError('Email ve şifre gerekli');
+    if (!username || !password) {
+      setError('Username ve şifre gerekli');
       return;
     }
 
     setLoading(true);
     try {
-      await adminApi.addUser(email, password, role);
+      await adminApi.addUser(username, password, role);
       onCreated();
       onClose();
     } catch (e: any) {
@@ -49,10 +49,13 @@ export default function AddUserModal({
         </h3>
 
         <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          type="text"
+          placeholder="Username"
+          value={username}
+          minLength={3}
+          maxLength={32}
+          pattern="[A-Za-z0-9_.-]{3,32}"
+          onChange={(e) => setUsername(e.target.value)}
           className="w-full bg-bg-input border border-border rounded-md px-3 py-2 text-sm mb-3 focus:border-accent outline-none"
         />
         <input

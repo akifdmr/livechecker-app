@@ -63,6 +63,9 @@ const paymentRoutes = require('./routes/payments');
 const chargeRoutes = require('./routes/charge');
 const processorRoutingRoutes = require('./routes/processor-routing');
 const posRoutes = require('./routes/pos');
+const ledgerRoutes = require('./routes/ledger');
+const provisionsRoutes = require('./routes/provisions');
+const messagesRoutes = require('./routes/messages');
 
 // ============================================================
 // ORTAM
@@ -292,6 +295,9 @@ app.use('/', graphRoutes(deps));
 app.use('/', chargeRoutes(deps));
 app.use('/', processorRoutingRoutes(deps));
 app.use('/', posRoutes(deps));
+app.use('/', ledgerRoutes);
+app.use('/', provisionsRoutes(deps));
+app.use('/', messagesRoutes);
 
 // ============================================================
 // HEALTH

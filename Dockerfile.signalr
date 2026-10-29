@@ -1,0 +1,13 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
+WORKDIR /src
+COPY api/signalr/MessageHub.csproj ./
+RUN dotnet restore MessageHub.csproj
+COPY api/signalr/ ./
+RUN dotnet publish MessageHub.csproj -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine
+WORKDIR /app
+ENV ASPNETCORE_URLS=http://+:5001
+COPY --from=build /app/publish ./
+EXPOSE 5001
+ENTRYPOINT ["dotnet", "MessageHub.dll"]

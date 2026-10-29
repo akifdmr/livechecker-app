@@ -6,6 +6,8 @@ node_modules
 **/node_modules
 **/dist
 **/build
+**/bin
+**/obj
 **/.cache
 **/*.log
 
@@ -13,7 +15,9 @@ node_modules
 .env.*
 **/.env
 **/.env.*
-api/datas/tr.txt
+api/datas/*.txt
+api/agent-run
+api/agent-flow*.sh
 
 coverage
 **/coverage

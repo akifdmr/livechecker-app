@@ -9,6 +9,7 @@ import Layout from './components/Layout';
 // Auth
 import DashboardPage from './pages/DashboardPage';
 import Login from './pages/Login';
+import ProfilePage from './pages/ProfilePage';
 
 // Herkes (checker hariç)
 import CardsPage from './pages/CardsPage';
@@ -38,7 +39,13 @@ import ProviderTransactionsPage from './pages/ProviderTransactionsPage';
 import ProviderSelectionPage from './pages/ProviderSelectionPage';
 import PosPage from './pages/PosPage';
 import EnrollmentsPage from './pages/EnrollmentsPage';
+import StripeCheckoutPage from './pages/StripeCheckoutPage';
+import StripeCheckoutSuccessPage from './pages/StripeCheckoutSuccessPage';
 import RolesPage from './pages/RolesPage';
+import AdminPaymentsPage from './pages/AdminPaymentsPage';
+import LedgerPage from './pages/LedgerPage';
+import ProvisionsPage from './pages/ProvisionsPage';
+import MessagesPage from './pages/MessagesPage';
 
 import { useAuthStore } from './stores/authStore';
 
@@ -109,6 +116,10 @@ export default function App() {
             {/* Root yönlendirmesi */}
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardRoute />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="ledger" element={<LedgerPage />} />
+            <Route path="messages" element={<MessagesPage />} />
+            <Route path="provisions" element={<PermissionRoute permission="payments.view"><ProvisionsPage /></PermissionRoute>} />
             <Route path="processors" element={<NonCheckerRoute><ProcessorsPage /></NonCheckerRoute>} />
 
             {/* ------- Herkes (checker hariç) ------- */}
@@ -180,6 +191,7 @@ export default function App() {
                 </AdminRoute>
               }
             />
+            <Route path="admin/payments" element={<AdminRoute><AdminPaymentsPage /></AdminRoute>} />
             <Route
               path="bank-accounts"
               element={
@@ -221,12 +233,24 @@ export default function App() {
               }
             />
             <Route
-              path="provider-selection"
+              path="stripe-checkout"
               element={
-                <PermissionRoute permission="providers.view">
-                  <ProviderSelectionPage />
+                <PermissionRoute permission="payments.sale">
+                  <StripeCheckoutPage />
                 </PermissionRoute>
               }
+            />
+            <Route
+              path="checkout-success"
+              element={
+                <PermissionRoute permission="payments.sale">
+                  <StripeCheckoutSuccessPage />
+                </PermissionRoute>
+              }
+            />
+            <Route
+              path="provider-selection"
+              element={<AdminRoute><ProviderSelectionPage /></AdminRoute>}
             />
             <Route
               path="roles"

@@ -83,7 +83,7 @@ module.exports = (deps) => {
 
       const byUser = await db.pool.query(`
         SELECT 
-          u.id, u.email, u.role, u.last_login,
+          u.id, u.username, u.email, u.role, u.last_login,
           (SELECT COUNT(*) FROM card_checks WHERE user_id = u.id) AS total_cards,
           (SELECT COUNT(*) FROM bin_checks WHERE user_id = u.id) AS total_bins,
           (SELECT COUNT(*) FROM live_cards_full WHERE user_id = u.id) AS live_cards,
@@ -102,7 +102,7 @@ module.exports = (deps) => {
           todayBinChecks: parseInt(totals.rows[0].today_bin_checks),
         },
         users: byUser.rows.map((u) => ({
-          id: u.id, email: u.email, role: u.role, lastLogin: u.last_login,
+          id: u.id, username: u.username, email: u.email, role: u.role, lastLogin: u.last_login,
           totalCards: parseInt(u.total_cards), totalBins: parseInt(u.total_bins),
           liveCards: parseInt(u.live_cards),
           todayCards: parseInt(u.today_cards), todayBins: parseInt(u.today_bins),

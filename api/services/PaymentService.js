@@ -4,7 +4,9 @@
 function safeProviderResponse(result) {
   const message = typeof result?.message === 'string'
     ? result.message
-        .replace(/\b(?:tok|pm|clv)_[A-Za-z0-9_-]+\b/gi, '[redacted]')
+        .replace(/\b(?:tok|pm|clv|sk|rk|pk)_[A-Za-z0-9_-]+\b/gi, '[redacted]')
+        .replace(/\bpi_[A-Za-z0-9]+_secret_[A-Za-z0-9_-]+\b/gi, '[redacted]')
+        .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
         .replace(/\b\d{12,19}\b/g, '[redacted]')
         .slice(0, 500)
     : null;
@@ -16,6 +18,65 @@ function safeProviderResponse(result) {
     message,
     amount: Number.isFinite(Number(result?.amount)) ? Number(result.amount) : null,
     currency: result?.currency || null,
+  };
+}
+
+const ACTION_STATUSES = new Set(['requires_action', 'requires_confirmation', 'processing', 'pending']);
+const { calculateCaptureAmount } = require('./ChargeCalculator');
+
+function safeIdentifier(value, label, maxLength = 120) {
+  if (value == null || value === '') return undefined;
+  const stringValue = String(value).trim();
+  if (stringValue.length > maxLength || !/^[A-Za-z0-9._:-]+$/.test(stringValue) || /^\d{12,19}$/.test(stringValue)) {
+    throw Object.assign(new Error(`${label} geçersiz`), { statusCode: 400 });
+  }
+  return stringValue;
+}
+
+function safeMetadata(value) {
+  if (value == null) return {};
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 20) {
+    throw Object.assign(new Error('metadata geçersiz'), { statusCode: 400 });
+  }
+  const output = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,39}$/.test(key) || /(pan|cvv|cvc|secret|password|token|otp|track|auth)/i.test(key)) {
+      throw Object.assign(new Error('metadata alanı desteklenmiyor'), { statusCode: 400 });
+    }
+    const item = typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean' ? String(raw) : '';
+    if (!item || item.length > 200 || /(?:\d[ -]?){12,19}/.test(item)) {
+      throw Object.assign(new Error('metadata değeri geçersiz'), { statusCode: 400 });
+    }
+    output[key] = item;
+  }
+  return output;
+}
+
+function safeRedirectUrl(value) {
+  if (typeof value !== 'string' || value.length > 4096) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function publicProviderResult(result) {
+  const status = result?.status || null;
+  return {
+    success: Boolean(result?.success),
+    action: result?.action || null,
+    status,
+    providerStatus: result?.providerStatus || null,
+    reason: result?.reason || null,
+    providerCode: result?.providerCode || result?.code || null,
+    message: safeProviderResponse(result).message,
+    transactionId: result?.transactionId || result?.paymentId || null,
+    amount: Number.isFinite(Number(result?.amount)) ? Number(result.amount) : null,
+    currency: result?.currency || null,
+    actionRequired: result?.requiresAction === true || ACTION_STATUSES.has(String(status || '').toLowerCase()),
+    redirectUrl: safeRedirectUrl(result?.redirectUrl),
   };
 }
 
@@ -44,6 +105,14 @@ class PaymentService {
     const value = this._validateAmount(amount);
     const provider = this._provider(providerKey);
     const started = Date.now();
+    const safeOrderId = safeIdentifier(orderId, 'orderId');
+    const safeInvoiceNumber = safeIdentifier(invoiceNumber, 'invoiceNumber');
+    const safeKey = safeIdentifier(idempotencyKey || requestId, 'idempotencyKey');
+    const safeDescription = description == null ? undefined : String(description).trim();
+    if (safeDescription && (safeDescription.length > 250 || /(?:\d[ -]?){12,19}/.test(safeDescription))) {
+      throw Object.assign(new Error('description geçersiz'), { statusCode: 400 });
+    }
+    const safeMeta = safeMetadata(metadata);
 
     // Check persistence before contacting a payment provider. This prevents a
     // known database outage from starting an operation that cannot be logged.
@@ -66,12 +135,12 @@ class PaymentService {
 
     const extra = {
       currency: provider.defaultCurrency || currency || 'USD',
-      orderId,
-      invoiceNumber,
-      idempotencyKey: idempotencyKey || requestId,
+      orderId: safeOrderId,
+      invoiceNumber: safeInvoiceNumber,
+      idempotencyKey: safeKey,
       reason,
-      description,
-      metadata,
+      description: safeDescription,
+      metadata: safeMeta,
     };
 
     const preAuth = provider.preAuth || provider.preauth;
@@ -109,7 +178,7 @@ class PaymentService {
       provider: providerKey,
       providerTransactionId: result?.transactionId || result?.paymentId || null,
       operation,
-      status: result?.pending
+      status: result?.pending || ACTION_STATUSES.has(String(result?.status || '').toLowerCase())
         ? 'pending'
         : result?.status === 'captured'
           ? 'captured'
@@ -120,9 +189,9 @@ class PaymentService {
               : 'declined',
       amount: value,
       currency: result?.currency || extra.currency,
-      orderId,
-      invoiceNumber,
-      idempotencyKey,
+      orderId: safeOrderId,
+      invoiceNumber: safeInvoiceNumber,
+      idempotencyKey: safeKey,
       errorCode: result?.providerCode || null,
       errorMessage: safeProviderResponse(result).message,
       rawResponse: safeProviderResponse(result),
@@ -140,7 +209,7 @@ class PaymentService {
         durationMs: Date.now() - started,
       }));
       return {
-        ...result,
+        ...publicProviderResult(result),
         requestId: requestId || null,
         internalTransactionId: null,
         transactionRecorded: false,
@@ -149,6 +218,36 @@ class PaymentService {
         provider: providerKey,
         operation,
       };
+    }
+
+    let provisionId = null;
+    if (operation === 'preauth' && enrollmentId && result?.transactionId) {
+      try {
+        const networkRef = safeIdentifier(result.transactionId, 'provider transaction reference', 255);
+        const provisionStatus = ACTION_STATUSES.has(String(result.status || '').toLowerCase())
+          ? 'requires_action'
+          : result.success ? 'open' : 'declined';
+        const provision = await this.db.pool.query(
+          `INSERT INTO provisions(user_id, card_enrollment_id, provider, network_ref,
+                                  amount, currency, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+          [userId, enrollmentId, providerKey, networkRef, value, extra.currency, provisionStatus]
+        );
+        provisionId = provision.rows[0]?.id || null;
+        if (provisionId) {
+          await this.db.auditEvent(userId, 'provision.create', 'provision', provisionId, {
+            provider: providerKey, status: provisionStatus, amount: value, currency: extra.currency,
+          });
+        }
+      } catch (error) {
+        console.error('[PAYMENT]', JSON.stringify({
+          requestId: requestId || null,
+          event: 'provision_record_failed',
+          userId,
+          provider: providerKey,
+          code: error.code || 'PROVISION_RECORD_FAILED',
+        }));
+      }
     }
 
     try {
@@ -171,17 +270,30 @@ class PaymentService {
       durationMs: Date.now() - started,
     }));
 
+    const redirectUrl = safeRedirectUrl(result?.redirectUrl);
+    const actionRequired = result?.requiresAction === true ||
+      ACTION_STATUSES.has(String(result?.status || '').toLowerCase());
     return {
-      ...result,
+      success: Boolean(result?.success),
+      status: result?.status || null,
+      reason: result?.reason || null,
+      providerCode: result?.providerCode || result?.code || null,
+      message: safeProviderResponse(result).message,
+      transactionId: result?.transactionId || result?.paymentId || null,
+      actionRequired,
+      redirectUrl,
+      amount: Number.isFinite(Number(result?.amount)) ? Number(result.amount) : value,
+      currency: result?.currency || extra.currency,
       requestId: requestId || null,
       internalTransactionId: tx.id,
       durationMs: Date.now() - started,
       provider: providerKey,
       operation,
+      provisionId,
     };
   }
 
-  async operateOnTransaction({ userId, requestId, transactionId, operation, amount, reason, idempotencyKey }) {
+  async operateOnTransaction({ userId, requestId, transactionId, operation, amount, captureMode, reason, idempotencyKey }) {
     const started = Date.now();
     const q = await this.db.pool.query(
       `SELECT * FROM merchant_transactions WHERE id=$1 AND user_id=$2`,
@@ -190,6 +302,7 @@ class PaymentService {
     const tx = q.rows[0];
     if (!tx) throw new Error('İşlem bulunamadı');
     if (!tx.provider_transaction_id) throw new Error('Provider transaction ID bulunamadı');
+    idempotencyKey = safeIdentifier(idempotencyKey || requestId, 'idempotencyKey');
 
     const provider = this._provider(tx.provider);
     const capabilities = typeof provider.capabilities === 'function'
@@ -208,10 +321,12 @@ class PaymentService {
         throw new Error('Yalnızca onaylı ve capture edilmemiş POS provizyonu capture edilebilir.');
       }
 
-      const value = amount == null ? Number(tx.amount) : this._validateAmount(amount);
-      if (value > Number(tx.amount)) {
-        throw new Error('Capture tutarı provizyon tutarını aşamaz.');
-      }
+      const calculated = calculateCaptureAmount(
+        tx.amount,
+        captureMode || (amount == null ? 'FULL_AUTH' : 'CUSTOM'),
+        amount
+      );
+      const value = calculated.amount;
 
       // Atomic claim prevents two requests from capturing the same auth.
       const claim = await this.db.pool.query(
@@ -279,6 +394,23 @@ class PaymentService {
         [tx.id, userId, result?.success ? 'captured' : 'approved']
       );
 
+      if (result?.success) {
+        const provisionUpdate = await this.db.pool.query(
+          `UPDATE provisions
+              SET captured_total=captured_total+$1, status='captured', updated_at=NOW()
+            WHERE user_id=$2 AND provider=$3 AND network_ref=$4 AND status='open'
+            RETURNING id`,
+          [value, userId, tx.provider, tx.provider_transaction_id]
+        );
+        if (provisionUpdate.rowCount) {
+          try {
+            await this.db.auditEvent(userId, 'provision.capture', 'provision', provisionUpdate.rows[0].id, {
+              provider: tx.provider, amount: value, currency: tx.currency,
+            });
+          } catch (_) {}
+        }
+      }
+
       if (child) {
         try {
           await this.db.auditEvent(userId, 'payments.capture', 'merchant_transaction', child.id, {
@@ -302,7 +434,7 @@ class PaymentService {
       }));
 
       return {
-        ...result,
+        ...publicProviderResult(result),
         requestId: requestId || null,
         internalTransactionId: child?.id || null,
         transactionRecorded: !!child,
@@ -357,6 +489,18 @@ class PaymentService {
       } catch (_) {}
     }
 
+    if (operation === 'void' && result?.success) {
+      const provisionUpdate = await this.db.pool.query(
+        `UPDATE provisions SET status='voided', updated_at=NOW()
+          WHERE user_id=$1 AND provider=$2 AND network_ref=$3 AND status='open'
+          RETURNING id`,
+        [userId, tx.provider, tx.provider_transaction_id]
+      );
+      if (provisionUpdate.rowCount) {
+        try { await this.db.auditEvent(userId, 'provision.void', 'provision', provisionUpdate.rows[0].id, { provider: tx.provider }); } catch (_) {}
+      }
+    }
+
     console.info('[PAYMENT]', JSON.stringify({
       requestId: requestId || null,
       event: child ? 'transaction_action_recorded' : 'transaction_action_not_recorded',
@@ -370,7 +514,14 @@ class PaymentService {
     }));
 
     return {
-      ...result,
+      success: Boolean(result?.success),
+      status: result?.status || null,
+      reason: result?.reason || null,
+      providerCode: result?.providerCode || result?.code || null,
+      message: safeProviderResponse(result).message,
+      transactionId: result?.transactionId || null,
+      amount: Number.isFinite(Number(result?.amount)) ? Number(result.amount) : null,
+      currency: result?.currency || tx.currency,
       requestId: requestId || null,
       internalTransactionId: child?.id || null,
       transactionRecorded: !!child,
@@ -398,7 +549,7 @@ class PaymentService {
     const result = await provider.getPaymentStatus(tx.provider_transaction_id);
     const nextStatus = result?.status === 'error' && result?.providerStatus !== 'Failed'
       ? tx.status
-      : result?.pending
+      : result?.pending || ACTION_STATUSES.has(String(result?.status || '').toLowerCase())
       ? 'pending'
       : result?.status === 'captured'
         ? 'captured'
@@ -427,6 +578,20 @@ class PaymentService {
       ]
     );
 
+    if (tx.operation === 'preauth') {
+      const provisionStatus = ACTION_STATUSES.has(String(result?.status || '').toLowerCase())
+        ? 'requires_action'
+        : nextStatus === 'approved' ? 'open'
+          : nextStatus === 'voided' || nextStatus === 'canceled' ? 'voided'
+            : nextStatus === 'declined' || nextStatus === 'error' ? 'declined'
+              : 'pending';
+      await this.db.pool.query(
+        `UPDATE provisions SET status=$1, updated_at=NOW()
+          WHERE user_id=$2 AND provider=$3 AND network_ref=$4`,
+        [provisionStatus, userId, tx.provider, tx.provider_transaction_id]
+      );
+    }
+
     try {
       await this.db.auditEvent(userId, 'payments.status_refresh', 'merchant_transaction', tx.id, {
         provider: tx.provider,
@@ -445,7 +610,7 @@ class PaymentService {
     }));
 
     return {
-      ...result,
+      ...publicProviderResult(result),
       requestId: requestId || null,
       status: nextStatus,
       pending: nextStatus === 'pending',
@@ -459,3 +624,6 @@ class PaymentService {
 }
 
 module.exports = PaymentService;
+module.exports.safeRedirectUrl = safeRedirectUrl;
+module.exports.publicProviderResult = publicProviderResult;
+module.exports.safeIdentifier = safeIdentifier;

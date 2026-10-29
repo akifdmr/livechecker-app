@@ -3,10 +3,56 @@
 // ============================================================
 const express = require('express');
 const router = express.Router();
-const { authMiddleware } = require('../auth');
+const { authMiddleware, requirePermission } = require('../auth');
 
 module.exports = (deps) => {
   const { paymentService, cardChecker, dbService } = deps;
+
+  // Hosted recurring checkout: card details are entered only on Stripe Checkout.
+  router.post('/payments/stripe/checkout-session', authMiddleware, requirePermission('payments.sale'), async (req, res) => {
+    try {
+      const stripeProvider = Object.values(deps.providers || {}).find((provider) =>
+        String(provider.type || provider.config?.type || '').toLowerCase() === 'stripe'
+      );
+      if (!stripeProvider || typeof stripeProvider.createSubscriptionCheckoutSession !== 'function') {
+        return res.status(503).json({ error: 'Stripe provider etkin değil' });
+      }
+
+      const session = await stripeProvider.createSubscriptionCheckoutSession({
+        customerEmail: req.user.email,
+        userId: req.user.id,
+      });
+      if (!session.url || !session.url.startsWith('https://checkout.stripe.com/')) {
+        return res.status(502).json({ error: 'Stripe Checkout URL oluşturulamadı' });
+      }
+      if (String(req.headers.accept || '').includes('text/html')) {
+        return res.redirect(303, session.url);
+      }
+      return res.status(201).json({ sessionId: session.id, checkoutUrl: session.url });
+    } catch (error) {
+      console.error('[STRIPE_CHECKOUT]', JSON.stringify({
+        requestId: req.requestId || null,
+        userId: req.user?.id || null,
+        code: error.code || error.type || 'CHECKOUT_SESSION_FAILED',
+      }));
+      return res.status(error.statusCode || 400).json({ error: 'Stripe Checkout oturumu oluşturulamadı' });
+    }
+  });
+
+  router.get('/payments/stripe/checkout-session/:sessionId/status', authMiddleware, requirePermission('payments.sale'), async (req, res) => {
+    try {
+      const stripeProvider = Object.values(deps.providers || {}).find((provider) =>
+        String(provider.type || provider.config?.type || '').toLowerCase() === 'stripe'
+      );
+      if (!stripeProvider || typeof stripeProvider.getSubscriptionCheckoutStatus !== 'function') {
+        return res.status(503).json({ error: 'Stripe provider etkin değil' });
+      }
+      const status = await stripeProvider.getSubscriptionCheckoutStatus(req.params.sessionId, req.user.id);
+      return res.json(status);
+    } catch (error) {
+      return res.status(error.statusCode || 400).json({ error: 'Checkout durumu doğrulanamadı' });
+    }
+  });
 
   // POST /payments/preauth
   router.post('/payments/preauth', authMiddleware, async (req, res) => {

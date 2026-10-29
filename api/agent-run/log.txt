@@ -1,0 +1,25 @@
+[21:24:18] DISPATCH S0
+[21:24:18] DONE S0 → step=1
+[21:24:18] DISPATCH S1
+[21:24:18] DONE S1 → step=2
+FAIL S2: MockProvider eklemiş + IDOR cards list
+[21:24:18] FAIL S2 — MockProvider eklemiş + IDOR cards list
+[21:24:18] DONE S2 → step=3
+[21:25:16] DISPATCH S0
+[21:25:40] DONE S0 → step=1
+[21:25:40] DISPATCH S1
+[19:42:39] DONE S1 → step=2
+[20:02:47] DISPATCH S2
+[20:02:47] DONE S2 → step=3
+[20:02:47] DISPATCH S3
+[20:02:47] DONE S3 → step=4
+[20:02:47] DISPATCH S4
+[20:02:47] DONE S4 → step=5
+[20:02:48] DISPATCH S5
+[20:02:48] DONE S5 → step=6
+[20:02:48] DISPATCH S6
+[20:02:48] DONE S6 → step=7
+[20:02:48] DISPATCH S7
+[20:02:48] DONE S7 → step=8
+[20:02:48] DISPATCH S8
+[20:02:48] DONE S8 → step=9

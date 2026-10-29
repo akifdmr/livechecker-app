@@ -1,0 +1,3 @@
+DONE_AT=2026-10-25T19:42:39+03:00
+STEP=S1
+NOTE=S1 safe additive schema added; reused existing tokenized/payment/audit tables; no live DB migration or setup executed

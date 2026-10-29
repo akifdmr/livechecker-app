@@ -1,0 +1,3 @@
+DONE_AT=2026-10-25T20:02:48+03:00
+STEP=S6
+NOTE=S6 admin settings, provider default, credit grant, masked global lists, and scoped ledger APIs added

@@ -30,7 +30,7 @@ export interface Card {
   favLists?: { id: number; name: string; color: string }[];
   check_count?: number;
   last_checked_at?: string;
-  checked_by_email?: string;
+  checked_by_username?: string;
   proxy?: string | null;
   checks?: any;
 

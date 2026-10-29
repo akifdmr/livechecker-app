@@ -1,0 +1,3 @@
+DONE_AT=2026-10-25T20:02:48+03:00
+STEP=S7
+NOTE=S7 admin payment controls, user ledger, provisions page, provider selection guard, and POS auth redirect UI added

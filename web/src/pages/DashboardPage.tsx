@@ -78,7 +78,7 @@ export default function DashboardPage() {
     );
   }
 
-  const userName = user?.email?.split('@')[0] || 'kullanıcı';
+  const userName = user?.username || 'kullanıcı';
 
   // ============================================================
   // RENDER
@@ -206,8 +206,8 @@ export default function DashboardPage() {
                     className="px-4 py-3 grid grid-cols-6 gap-2 items-center hover:bg-[#1a1a1a]"
                   >
                     <div className="col-span-2 min-w-0">
-                      <div className="text-sm text-info truncate" title={u.email}>
-                        {u.email}
+                      <div className="text-sm text-info truncate" title={u.username || `#${u.id}`}>
+                        {u.username || `#${u.id}`}
                       </div>
                       <div className="text-[10px] text-gray-500">
                         {u.role === 'admin' ? '👑 Admin' : '👤 User'}

@@ -7,12 +7,13 @@
     "web"
   ],
   "scripts": {
-    "dev": "concurrently -n API,WEB -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
-    "predev": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true; lsof -ti:5173 | xargs kill -9 2>/dev/null || true",
+    "dev": "concurrently -n API,WEB,HUB -c blue,green,magenta \"npm:dev:api\" \"npm:dev:web\" \"npm:dev:hub\"",
+    "predev": "lsof -ti:3000 | xargs kill -9 2>/dev/null || true; lsof -ti:5173 | xargs kill -9 2>/dev/null || true; lsof -ti:5001 | xargs kill -9 2>/dev/null || true",
     "dev:api": "npm --prefix api run dev",
     "dev:web": "npm --prefix web run dev",
+    "dev:hub": "dotnet run --project api/signalr/MessageHub.csproj --no-launch-profile --urls http://0.0.0.0:5001",
     "build": "npm --prefix web run build",
-    "start": "npm --prefix api run start",
+    "start": "concurrently -n API,HUB -c blue,magenta \"npm --prefix api run start\" \"npm:dev:hub\"",
     "install:all": "npm install --workspaces"
   },
   "devDependencies": {

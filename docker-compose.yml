@@ -28,8 +28,11 @@ services:
       NODE_ENV: production
       APP_ENV: production
       PORT: 3000
+      DB_CONNECTION_MODE: compose
       # Force the compose database settings over any DATABASE_URL in api/.env.
       DATABASE_URL: ""
+      DB_EXTERNAL_URL: ""
+      DB_INTERNAL_URL: ""
       PGHOST: postgres
       PGPORT: 5432
       PGUSER: ${POSTGRES_USER:-posapp}
@@ -38,6 +41,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the project .env file}
       CVV_SALT: ${CVV_SALT:?Set CVV_SALT in the project .env file}
       PROCESSOR_VAULT_KEY: ${PROCESSOR_VAULT_KEY:-}
+      SIGNALR_INTERNAL_SECRET: ${SIGNALR_INTERNAL_SECRET:?Set SIGNALR_INTERNAL_SECRET in the project .env file}
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,6 +58,28 @@ services:
       retries: 5
       start_period: 40s
 
+  signalr:
+    build:
+      context: .
+      dockerfile: Dockerfile.signalr
+    restart: unless-stopped
+    init: true
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5001
+      NODE_API_URL: http://api:3000
+      SIGNALR_INTERNAL_SECRET: ${SIGNALR_INTERNAL_SECRET:?Set SIGNALR_INTERNAL_SECRET in the project .env file}
+      SIGNALR_ALLOWED_ORIGINS: ${WEB_ORIGIN:-http://localhost:8080}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5001/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   web:
     build:
       context: .
@@ -64,6 +90,8 @@ services:
       - "${WEB_PORT:-8080}:80"
     depends_on:
       api:
+        condition: service_healthy
+      signalr:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]

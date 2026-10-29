@@ -1,8 +1,13 @@
+import { useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { authApi } from '../api';
 import { useAuthStore } from '../stores/authStore';
 
 const userLinks = [
   { to: '/dashboard', label: 'Dashboard' },
+  { to: '/profile', label: 'Hesabım' },
+  { to: '/ledger', label: 'Kredi defterim' },
+  { to: '/messages', label: 'Mesajlar' },
   { to: '/cards', label: 'Kartlar' },
   { to: '/bin', label: 'BIN Ara' },
   { to: '/check', label: 'Kontrol' },
@@ -13,6 +18,8 @@ const userLinks = [
 ];
 
 const checkerLinks = [
+  { to: '/profile', label: 'Hesabım' },
+  { to: '/messages', label: 'Mesajlar' },
   { to: '/subscriptions', label: 'Abonelik check' },
   { to: '/bin', label: 'BIN Check' },
   { to: '/bin-history', label: 'Kontrol geçmişim' },
@@ -25,6 +32,8 @@ const adminLinks = [
     children: [
       { to: '/admin', label: '📊 Sistem İstatistikleri' },
       { to: '/admin/users', label: '👥 Kullanıcılar' },
+      { to: '/admin/payments', label: '💳 Ödeme ayarları & krediler' },
+      { to: '/provider-selection', label: '🎛️ Varsayılan POS Provider' },
       { to: '/roles', label: '🛡️ Roller & Aksiyonlar' },
       { to: '/bank-accounts', label: '🏦 Banka Hesapları' },
       { to: '/load-cards', label: '💳 Dolum Kartları' },
@@ -40,8 +49,8 @@ const providerLinks = [
     isDropdown: true,
     children: [
       { to: '/pos', label: '💳 Multi-Provider POS' },
-      { to: '/provider-selection', label: '🎛️ POS Provider Seçimi' },
       { to: '/enrollments', label: '🔗 Card Enrollments' },
+      { to: '/provisions', label: '🔒 Provizyonlar' },
       { to: '/transactions', label: '📋 İşlem Geçmişi' },
       { to: '/analytics/routing', label: '📊 BIN Analiz' },   // ⭐ YENİ
       { to: '/processor-routing', label: '⚙️ Processor Routing' },
@@ -53,8 +62,29 @@ const providerLinks = [
 
 export default function Layout() {
   const navigate = useNavigate();
-  const { user, isAdmin, hasPermission, logout } = useAuthStore();
-  const visibleUserLinks = user?.role === 'checker' ? checkerLinks : userLinks;
+  const { user, token, isAdmin, hasPermission, logout, updateUser } = useAuthStore();
+  const baseUserLinks = user?.role === 'admin'
+    ? userLinks
+    : Number(user?.credits || 0) <= 0
+      ? userLinks.filter((link) => ['/dashboard', '/profile', '/ledger', '/messages'].includes(link.to))
+      : user?.role === 'checker' ? checkerLinks : userLinks;
+  const visibleUserLinks = hasPermission('payments.sale')
+    ? [...baseUserLinks, { to: '/stripe-checkout', label: 'Stripe Checkout' }]
+    : baseUserLinks;
+
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    const refreshSession = async () => {
+      try {
+        const currentUser = await authApi.me();
+        if (active) updateUser(currentUser);
+      } catch { /* API interceptor handles a revoked or expired session. */ }
+    };
+    refreshSession();
+    const timer = window.setInterval(refreshSession, 60_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [token, updateUser]);
 
   function handleLogout() {
     logout();
@@ -76,7 +106,7 @@ export default function Layout() {
             LiveChecker
           </NavLink>
           <span className="text-xs text-gray-500 md:mt-1 md:block">
-            {user?.email || 'Hesap'}
+            {user?.username || 'Hesap'}{user?.role !== 'admin' && ` · ${Number(user?.credits || 0).toFixed(2)} kredi`}
           </span>
         </div>
 
@@ -112,7 +142,7 @@ export default function Layout() {
               Yönetim
             </p>
             <nav className="grid grid-cols-2 gap-1 sm:grid-cols-3 md:block md:space-y-1">
-              {adminLinks.map((link) => (
+              {isAdmin() && adminLinks.map((link) => (
                 <div key={link.label}>
                   <p className="px-3 py-2 text-sm font-semibold text-gray-300">
                     {link.label}

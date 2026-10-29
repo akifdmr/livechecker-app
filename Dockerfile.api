@@ -9,6 +9,7 @@ COPY api ./api
 ENV NODE_ENV=production
 ENV APP_ENV=production
 ENV PORT=3000
+ENV DB_CONNECTION_MODE=internal
 
 EXPOSE 3000
 CMD ["node", "api/app.js"]

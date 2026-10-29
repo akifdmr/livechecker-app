@@ -1,0 +1,3 @@
+DONE_AT=2026-10-25T20:02:48+03:00
+STEP=S5
+NOTE=S5 owner-scoped capture added; capture modes enforced; over-authorization rejected without sale fallback
