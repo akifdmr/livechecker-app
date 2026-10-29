@@ -21,7 +21,7 @@ const path = require('path');
 const http = require('node:http');
 const fs = require('node:fs');
 const config = require('./config');
-const { verifyToken } = require('./auth');
+const { verifyToken, getSessionIdentity, cookieValue, SESSION_COOKIE } = require('./auth');
 
 // ── Core ──
 const BinDatabase = require('./core/BinDatabase');
@@ -123,11 +123,8 @@ app.use((req, res, next) => {
   if (!skipLog) {
     res.on('finish', () => {
       console.info('[HTTP]', JSON.stringify({
-        requestId: req.requestId,
         method: req.method,
-        path: req.path,
         status: res.statusCode,
-        userId: req.user?.id || null,
         durationMs: Date.now() - startedAt,
       }));
     });
@@ -154,10 +151,14 @@ app.use((req, _res, next) => {
 // CHECKER ROLÜ KISITLAMASI
 // ⭐ FIX: Frontend (HTML/JS/CSS) istekleri değil, sadece API istekleri kısıtlanır.
 // ============================================================
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  const user = token ? verifyToken(token) : null;
+  let user = token ? verifyToken(token) : null;
+  if (!user && cookieValue(req, SESSION_COOKIE)) {
+    try { user = await getSessionIdentity(cookieValue(req, SESSION_COOKIE)); }
+    catch (error) { console.error('[AUTH] Checker session role lookup failed:', error.message); }
+  }
 
   if (user?.role !== 'checker') return next();
 

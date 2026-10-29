@@ -8,6 +8,7 @@ const inputClass = 'w-full rounded-md border border-border bg-bg-input px-3 py-2
 export default function ProfilePage() {
   const user = useAuthStore((state) => state.user);
   const updateUser = useAuthStore((state) => state.updateUser);
+  const logout = useAuthStore((state) => state.logout);
   const [username, setUsername] = useState(user?.username || '');
   const [displayName, setDisplayName] = useState(user?.display_name || '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -15,6 +16,13 @@ export default function ProfilePage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sessions, setSessions] = useState<any[]>([]);
+
+  async function loadSessions() {
+    try { setSessions(await authApi.sessions()); } catch { /* auth interceptor handles expired sessions */ }
+  }
+
+  useEffect(() => { void loadSessions(); }, []);
 
   useEffect(() => {
     setUsername(user?.username || '');
@@ -33,9 +41,32 @@ export default function ProfilePage() {
       setUsername(updated.username); setDisplayName(updated.display_name || '');
       setCurrentPassword(''); setNewPassword('');
       setMessage('Hesap bilgileri güncellendi.');
+      if (newPassword) {
+        logout();
+        window.location.replace('/login');
+      }
     } catch (cause: any) {
       setError(cause.response?.data?.error || cause.message || 'Güncelleme başarısız.');
     } finally { setBusy(false); }
+  }
+
+  async function revokeSession(id: string, current: boolean) {
+    setError('');
+    try {
+      await authApi.revokeSession(id);
+      if (current) { logout(); window.location.replace('/login'); return; }
+      await loadSessions();
+      setMessage('Oturum kapatıldı.');
+    } catch (cause: any) { setError(cause.response?.data?.error || 'Oturum kapatılamadı.'); }
+  }
+
+  async function revokeAll() {
+    setError('');
+    try {
+      await authApi.logoutAll();
+      logout();
+      window.location.replace('/login');
+    } catch (cause: any) { setError(cause.response?.data?.error || 'Oturumlar kapatılamadı.'); }
   }
 
   return <section className="mx-auto max-w-2xl rounded-lg border border-border bg-bg-card p-6">
@@ -60,5 +91,15 @@ export default function ProfilePage() {
       {error && <p className="text-sm text-red-400">{error}</p>}
       <button disabled={busy} className="rounded-md bg-accent px-5 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? 'Kaydediliyor…' : 'Bilgileri Kaydet'}</button>
     </form>
+    <div className="mt-8 border-t border-border pt-6">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div><h2 className="text-sm font-semibold">Açık oturumlar</h2><p className="mt-1 text-xs text-gray-500">IP adresi, cihaz kimliği veya tarayıcı parmak izi tutulmaz.</p></div>
+        <button type="button" onClick={revokeAll} className="rounded border border-red-500/40 px-3 py-2 text-xs text-red-300 hover:bg-red-500/10">Tüm oturumları kapat</button>
+      </div>
+      <div className="space-y-2">{sessions.map((session) => <div key={session.id} className="flex flex-wrap items-center justify-between gap-3 rounded border border-border p-3 text-xs">
+        <div><div className="font-medium">{session.current ? 'Bu oturum' : 'Diğer oturum'}</div><div className="mt-1 text-gray-500">Son etkinlik: {new Date(session.last_seen_at).toLocaleString()}</div><div className="text-gray-500">Bitiş: {new Date(session.expires_at).toLocaleString()}</div></div>
+        <button type="button" onClick={() => revokeSession(session.id, session.current)} className="rounded border border-border px-3 py-2 hover:bg-white/5">Oturumu kapat</button>
+      </div>)}{sessions.length === 0 && <p className="text-xs text-gray-500">Açık oturum bulunamadı.</p>}</div>
+    </div>
   </section>;
 }

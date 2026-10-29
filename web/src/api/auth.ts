@@ -1,8 +1,9 @@
 import { api } from './client';
+import { isChromeExtension } from '../stores/authStore';
 
 export const authApi = {
   login: async (username: string, password: string) => {
-    const { data } = await api.post('/auth/login', { username, password });
+    const { data } = await api.post('/auth/login', { username, password }, { headers: isChromeExtension ? {} : { 'X-Session-Mode': 'cookie' } });
     return data;
   },
   me: async () => {
@@ -17,4 +18,8 @@ export const authApi = {
     const { data } = await api.patch('/auth/profile', payload);
     return data.user;
   },
+  sessions: async () => (await api.get('/auth/sessions')).data.sessions,
+  revokeSession: async (id: string) => api.delete(`/auth/sessions/${id}`),
+  logout: async () => api.post('/auth/logout'),
+  logoutAll: async () => api.post('/auth/logout-all'),
 };

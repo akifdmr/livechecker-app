@@ -1,13 +1,14 @@
 // src/api/client.ts
 import axios from 'axios';
 import { toast } from '../components/Toast';
-import { getApiBaseUrl, useAuthStore } from '../stores/authStore';
+import { getApiBaseUrl, isChromeExtension, useAuthStore } from '../stores/authStore';
 import { parseApiError } from './errors';
 
 const api = axios.create({
   baseURL: getApiBaseUrl(),
   timeout: 60000,
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 });
 
 api.interceptors.request.use((config) => {
@@ -15,7 +16,10 @@ api.interceptors.request.use((config) => {
   const baseURL = getApiBaseUrl(backendUrl);
   if (baseURL) config.baseURL = baseURL;
 
-  if (token) {
+  if (!isChromeExtension) {
+    config.headers = config.headers ?? {};
+    (config.headers as any)['X-Session-Mode'] = 'cookie';
+  } else if (token && token !== 'cookie-session') {
     config.headers = config.headers ?? {};
     (config.headers as any).Authorization = `Bearer ${token}`;
   }

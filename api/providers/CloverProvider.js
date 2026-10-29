@@ -1,25 +1,11 @@
 // ============================================================
-// CLOVER PROVIDER — v10
-//
-// ⭐ v10 değişiklikler:
-//  - apiKey ReferenceError FIX: `const apiKey` _createToken içinde tanımlı
-//  - currency: config.currency || 'USD' (SNSAUTO → CAD, clover3 → USD)
-//  - TÜM log'larda `[CLOVER-<providerKey>-<tag>]` prefix
-//    → hangi Clover'a gittiği kesin görünür
-//  - 401/400/402 response body loglanır
-//  - publicKey + privateKey UUID format kontrolü
-//
-// ⭐ Korunanlar:
-//  - Token: apikey header (publicKey) → token.clover.com
-//  - Charge: Bearer (privateKey) → scl.clover.com
-//  - ecomind: 'moto', x-forwarded-for: 127.0.0.1
-//  - verify() $0.00 Account Verification
+// CLOVER PROVIDER — v13
+// - verify(): $0 yoksa $1.2 + void fallback (_verifyWithFallback)
 // ============================================================
 const BaseProvider = require('../core/BaseProvider');
 
 class CloverProvider extends BaseProvider {
   constructor(key, config) {
-    // BaseProvider hem `(key, config)` hem `({key, config})` kabul eder
     if (config === undefined && typeof key === 'object' && key !== null) {
       config = key;
       key = 'clover3';
@@ -27,7 +13,6 @@ class CloverProvider extends BaseProvider {
     super(key, config);
     this.config = config;
 
-    // UUID format uyarıları — erken tespit
     for (const field of ['publicKey', 'privateKey']) {
       const v = String(config[field] || '').trim();
       if (v && !/^[0-9a-fA-F-]{36}$/.test(v)) {
@@ -46,16 +31,10 @@ class CloverProvider extends BaseProvider {
     }
   }
 
-  // ============================================================
-  // Log prefix — hangi Clover olduğunu her satırda gösterir
-  // ============================================================
   _p(tag) {
     return `[CLOVER-${this.key}-${tag}]`;
   }
 
-  // ============================================================
-  // Mesaj normalizasyonu — obje sızmasını engeller
-  // ============================================================
   _safeStr(v, fallback = null) {
     if (v === null || v === undefined) return fallback;
     if (typeof v === 'string') return v;
@@ -73,9 +52,6 @@ class CloverProvider extends BaseProvider {
     return String(v);
   }
 
-  // ============================================================
-  // Kart doğrulama
-  // ============================================================
   _parseExpiry(card) {
     let expMonth = card.expMonth;
     let expYear = card.expYear;
@@ -110,13 +86,7 @@ class CloverProvider extends BaseProvider {
     return { ok: true, pan: cleanPan, expMonth, expYear };
   }
 
-  // ============================================================
-  // PREAUTH / SALE / VERIFY — Public API
-  // ============================================================
   async preauth(card, amount, proxyStr = null) {
-    // İki kullanım şekli:
-    //   preauth(card, amount)         → full card → token + charge
-    //   preauth(paymentMethodId, ...) → "clv_..." token → sadece charge
     if (typeof card === 'string') {
       return this.preAuth(card, amount, proxyStr);
     }
@@ -134,9 +104,6 @@ class CloverProvider extends BaseProvider {
     return this._chargeWithCapture(card, amount, true, proxyStr, 'SALE');
   }
 
-  // ============================================================
-  // Token'lı akış (POS için)
-  // ============================================================
   async _chargeWithToken(paymentMethodId, amount, capture, proxyStr = null, tag = 'TOKEN') {
     if (!/^clv_[A-Za-z0-9]+$/.test(String(paymentMethodId || ''))) {
       return {
@@ -158,46 +125,37 @@ class CloverProvider extends BaseProvider {
     });
   }
 
-  // ============================================================
-  // Full card akış (token + charge)
-  // ============================================================
   async _chargeWithCapture(card, amount, captureFlag, proxyStr = null, tag = 'CHARGE') {
-  const v = this._validateCard(card);
-  if (!v.ok) {
-    console.error(`${this._p(tag)} ❌ Kart doğrulaması: ${v.reason}`);
-    return { success: false, reason: v.reason, raw: v.raw };
+    const v = this._validateCard(card);
+    if (!v.ok) {
+      console.error(`${this._p(tag)} ❌ Kart doğrulaması: ${v.reason}`);
+      return { success: false, reason: v.reason, raw: v.raw };
+    }
+    const { pan, expMonth, expYear } = v;
+
+    const amountCents = Math.round(Number(amount) * 100);
+    if (amountCents <= 0) {
+      return { success: false, reason: 'invalid_amount', message: 'Tutar sıfırdan büyük olmalı.' };
+    }
+
+    const currency = this.config.currency || 'USD';
+    console.log(
+      `${this._p(tag)} $${amount} → ${amountCents} cent (capture=${captureFlag}, currency=${currency})`
+    );
+
+    return this._chargeWithEcomRetry({
+      cardData: { pan, expMonth, expYear, cvv: card.cvv },
+      amountCents,
+      capture: captureFlag === true,
+      tag,
+      proxyStr,
+    });
   }
-  const { pan, expMonth, expYear } = v;
 
-  const amountCents = Math.round(Number(amount) * 100);
-  if (amountCents <= 0) {
-    return { success: false, reason: 'invalid_amount', message: 'Tutar sıfırdan büyük olmalı.' };
-  }
-
-  const currency = this.config.currency || 'USD';
-  console.log(
-    `${this._p(tag)} $${amount} → ${amountCents} cent (capture=${captureFlag}, currency=${currency})`
-  );
-
-  // ⭐ v11: ECOM retry destekli akış
-  return this._chargeWithEcomRetry({
-    cardData: { pan, expMonth, expYear, cvv: card.cvv },
-    amountCents,
-    capture: captureFlag === true,
-    tag,
-    proxyStr,
-  });
-}
-
-  // ============================================================
-  // TOKEN OLUŞTUR — token.clover.com
-  // apikey: publicKey (UUID)
-  // ============================================================
   async _createToken(card, tag = 'TOKEN') {
     const { config } = this;
     const { pan, expMonth, expYear, cvv } = card;
 
-    // ⭐ v10: apiKey burada tanımlı — ReferenceError yok
     const apiKey = config.publicKey || config.apiToken;
 
     if (!apiKey) {
@@ -247,7 +205,6 @@ class CloverProvider extends BaseProvider {
     const tokenText = await tokenRes.text();
     console.log(`${this._p(tag + '-TOKEN')} HTTP ${tokenRes.status}`);
 
-    // ---- 401 / 403 ----
     if (tokenRes.status === 401 || tokenRes.status === 403) {
       console.error(
         `${this._p(tag + '-TOKEN')} 🚨 ${tokenRes.status} UNAUTHORIZED\n` +
@@ -328,11 +285,6 @@ class CloverProvider extends BaseProvider {
     return { success: true, tokenId: tokenData.id, raw: tokenData };
   }
 
-  // ============================================================
-  // CHARGE — scl.clover.com
-  // Authorization: Bearer privateKey
-  // currency: config.currency (SNSAUTO → CAD)
-  // ============================================================
   async _createCharge({ amountCents, capture, source, tag = 'CHARGE', ecomind, allowZero = false, proxyStr = null }) {
     const { config } = this;
 
@@ -386,7 +338,6 @@ class CloverProvider extends BaseProvider {
     const chargeText = await chargeRes.text();
     console.log(`${this._p(tag + '-CHARGE')} HTTP ${chargeRes.status}`);
 
-    // ---- 401 ----
     if (chargeRes.status === 401) {
       console.error(
         `${this._p(tag + '-CHARGE')} 🚨 401 UNAUTHORIZED\n` +
@@ -400,71 +351,63 @@ class CloverProvider extends BaseProvider {
       );
     }
 
-    // ---- 402 card_declined ----
-// ---- 402 card_declined ----
-// ---- 402 card_declined ----
-if (chargeRes.status === 402) {
-  let chargeData = {};
-  try { chargeData = JSON.parse(chargeText); } catch (_) {}
+    if (chargeRes.status === 402) {
+      let chargeData = {};
+      try { chargeData = JSON.parse(chargeText); } catch (_) {}
 
-  const declineCode = String(chargeData.error?.declineCode || '').toLowerCase();
-  const providerCode = String(chargeData.error?.code || '').toLowerCase();
-  const message = this._safeStr(chargeData.error?.message, null);
-  const msg = (message || '').toLowerCase();
+      const declineCode = String(chargeData.error?.declineCode || '').toLowerCase();
+      const providerCode = String(chargeData.error?.code || '').toLowerCase();
+      const message = this._safeStr(chargeData.error?.message, null);
+      const msg = (message || '').toLowerCase();
 
-  // ⭐ Decline nedenini sınıflandır (Clover'ın ham mesajından)
-  let reason = 'declined';
+      let reason = 'declined';
 
-  // 1) Alt-tip: issuer_declined / card_declined → message içeriğiyle ayır
-  if (
-    declineCode === 'issuer_declined' ||
-    declineCode === 'card_declined' ||
-    providerCode === 'card_declined' ||
-    providerCode === 'processing_error'
-  ) {
-    if (/insufficient\s*funds?|over\s*limit|yetersiz\s*bakiye/i.test(msg)) {
-      reason = 'insufficient_funds';
-    } else if (/limit\s*exceeded|activity\s*limit/i.test(msg)) {
-      reason = 'limit_exceeded';
-    } else if (/expired/i.test(msg)) {
-      reason = 'expired_card';
-    } else if (/pick\s*up|stolen|lost\s*card/i.test(msg)) {
-      reason = 'pick_up_card';
-    } else if (/do\s*not\s*honor/i.test(msg)) {
-      reason = 'do_not_honor';
-    } else if (/cvv|cvc|security\s*code/i.test(msg)) {
-      reason = 'cvv_mismatch';
-    } else if (/invalid\s*(card|account|number)/i.test(msg)) {
-      reason = 'invalid_account';
-    } else if (/restricted|blocked|not\s*allowed/i.test(msg)) {
-      reason = 'restricted_card';
+      if (
+        declineCode === 'issuer_declined' ||
+        declineCode === 'card_declined' ||
+        providerCode === 'card_declined' ||
+        providerCode === 'processing_error'
+      ) {
+        if (/insufficient\s*funds?|over\s*limit|yetersiz\s*bakiye/i.test(msg)) {
+          reason = 'insufficient_funds';
+        } else if (/limit\s*exceeded|activity\s*limit/i.test(msg)) {
+          reason = 'limit_exceeded';
+        } else if (/expired/i.test(msg)) {
+          reason = 'expired_card';
+        } else if (/pick\s*up|stolen|lost\s*card/i.test(msg)) {
+          reason = 'pick_up_card';
+        } else if (/do\s*not\s*honor/i.test(msg)) {
+          reason = 'do_not_honor';
+        } else if (/cvv|cvc|security\s*code/i.test(msg)) {
+          reason = 'cvv_mismatch';
+        } else if (/invalid\s*(card|account|number)/i.test(msg)) {
+          reason = 'invalid_account';
+        } else if (/restricted|blocked|not\s*allowed/i.test(msg)) {
+          reason = 'restricted_card';
+        }
+      }
+
+      if (declineCode === 'insufficient_funds') reason = 'insufficient_funds';
+      else if (declineCode === 'expired_card') reason = 'expired_card';
+      else if (declineCode === 'incorrect_cvc') reason = 'cvv_mismatch';
+      else if (declineCode === 'pick_up_card') reason = 'pick_up_card';
+      else if (declineCode === 'do_not_honor') reason = 'do_not_honor';
+      else if (declineCode === 'invalid_account') reason = 'invalid_account';
+
+      console.log(
+        `${this._p(tag + '-CHARGE')} 402 DECLINED (${declineCode}): ${message} → reason=${reason}`
+      );
+
+      return {
+        success: false,
+        reason,
+        message,
+        providerCode: this._safeStr(chargeData.error?.code, null),
+        declineCode: this._safeStr(chargeData.error?.declineCode, null),
+        raw: chargeData,
+      };
     }
-    // else: generic 'declined'
-  }
 
-  // 2) Doğrudan declineCode eşleşmeleri
-  if (declineCode === 'insufficient_funds') reason = 'insufficient_funds';
-  else if (declineCode === 'expired_card') reason = 'expired_card';
-  else if (declineCode === 'incorrect_cvc') reason = 'cvv_mismatch';
-  else if (declineCode === 'pick_up_card') reason = 'pick_up_card';
-  else if (declineCode === 'do_not_honor') reason = 'do_not_honor';
-  else if (declineCode === 'invalid_account') reason = 'invalid_account';
-
-  console.log(
-    `${this._p(tag + '-CHARGE')} 402 DECLINED (${declineCode}): ${message} → reason=${reason}`
-  );
-
-  return {
-    success: false,
-    reason,
-    message,
-    providerCode: this._safeStr(chargeData.error?.code, null),
-    declineCode: this._safeStr(chargeData.error?.declineCode, null),
-    raw: chargeData,
-  };
-}
-
-    // ---- 400 ----
     if (chargeRes.status === 400) {
       let chargeData = {};
       try { chargeData = JSON.parse(chargeText); } catch (_) {}
@@ -501,7 +444,6 @@ if (chargeRes.status === 402) {
       throw new Error(`PROVIDER_ERROR: Clover ${tag} charge parse`);
     }
 
-    // ---- Başarılı ----
     if (
       chargeData.paid === true ||
       chargeData.captured === true ||
@@ -522,7 +464,6 @@ if (chargeRes.status === 402) {
       };
     }
 
-    // ---- Hata objesi ----
     if (chargeData.error) {
       const code = String(chargeData.error.code || '').toLowerCase();
       const msg = String(chargeData.error.message || '').toLowerCase();
@@ -530,7 +471,6 @@ if (chargeRes.status === 402) {
 
       console.log(`${this._p(tag + '-CHARGE')} Hata: code=${code} msg=${msg}`);
 
-      // inv term id → config hatası → failover
       if (/inv\s*term\s*id/i.test(msg)) {
         console.error(
           `${this._p(tag + '-CHARGE')} 🚨 TERMINAL/MERCHANT CONFIG HATASI\n` +
@@ -543,7 +483,6 @@ if (chargeRes.status === 402) {
         );
       }
 
-      // Provider/API hataları → failover
       if (
         code === 'authentication_error' ||
         code === 'unauthorized' ||
@@ -563,7 +502,6 @@ if (chargeRes.status === 402) {
         );
       }
 
-      // Kart bazlı ret → DEAD
       let reason = 'declined';
       if (code === 'expired_card') reason = 'expired_card';
       else if (code === 'incorrect_cvc') reason = 'cvv_mismatch';
@@ -586,7 +524,6 @@ if (chargeRes.status === 402) {
       };
     }
 
-    // ---- Bilinmeyen ----
     console.warn(
       `${this._p(tag + '-CHARGE')} Bilinmeyen: ${JSON.stringify(chargeData).substring(0, 300)}`
     );
@@ -599,9 +536,6 @@ if (chargeRes.status === 402) {
     };
   }
 
-  // ============================================================
-  // CAPTURE
-  // ============================================================
   async capture(paymentId, amount, proxyStr = null) {
     const { config } = this;
     const cleanAmount = Math.round(Number(amount) * 100);
@@ -671,9 +605,6 @@ if (chargeRes.status === 402) {
     return { success: false, reason: 'unknown_response', message: 'Bilinmeyen capture yanıtı.', raw: data };
   }
 
-  // ============================================================
-  // REFUND
-  // ============================================================
   async refund(paymentId, amount, proxyStr = null) {
     const { config } = this;
     const cleanAmount = Math.round(Number(amount) * 100);
@@ -738,11 +669,8 @@ if (chargeRes.status === 402) {
     return { success: false, reason: 'unknown_response', message: 'Bilinmeyen refund yanıtı.', raw: data };
   }
 
-  // ============================================================
-  // VERIFY — $0.00 Account Verification
-  // ============================================================
-    async verify(card, proxyStr = null, options = {}) {
-    // İki çağrı şekli: verify(card, options) vs verify(card, proxyStr, options)
+  // ⭐ v13: verify() — $0 yoksa $1.2 + void fallback
+  async verify(card, proxyStr = null, options = {}) {
     if (
       proxyStr !== null &&
       typeof proxyStr === 'object' &&
@@ -754,7 +682,6 @@ if (chargeRes.status === 402) {
     }
     if (options == null) options = {};
 
-    // ⭐ v12: zeroAuth kontrolü — $1 + void fraud riski YOK
     const supportsZero = this.config.zeroAuth !== false;
     const requestedAmount = Number(
       options.amount != null
@@ -767,18 +694,11 @@ if (chargeRes.status === 402) {
       ? requestedAmount
       : 0;
 
-    // $0 verify için zeroAuth gerekli
     if (amount === 0 && !supportsZero) {
       console.warn(
-        `${this._p('VERIFY')} ⚠ $0 auth desteklenmiyor (zeroAuth=false) → failover`
+        `${this._p('VERIFY')} ⚠ $0 yok (zeroAuth=false) → $1.2 + void fallback`
       );
-      return {
-        success: false,
-        reason: 'zero_auth_unsupported',
-        message: '$0 verify bu merchant için desteklenmiyor. Başka provider denenecek.',
-        unknown: false,
-        raw: null,
-      };
+      return this._verifyWithFallback(card, proxyStr);
     }
 
     const amountCents = Math.round(amount * 100);
@@ -796,7 +716,6 @@ if (chargeRes.status === 402) {
       `capture=${capture} zeroAuth=${supportsZero}`
     );
 
-    // ⭐ v11: ECOM retry destekli akış
     return this._chargeWithEcomRetry({
       cardData: { pan, expMonth, expYear, cvv: card.cvv },
       amountCents,
@@ -807,125 +726,160 @@ if (chargeRes.status === 402) {
     });
   }
 
-// ============================================================
-// ⭐ v11: ECOM retry helper
-//   İlk deneme moto + restricted_card → yeni token + ecom ile tekrar dene
-//   (Clover token single-use; yeni token şart)
-// ============================================================
-async _chargeWithEcomRetry({
-  cardData,
-  amountCents,
-  capture,
-  tag,
-  proxyStr,
-  allowZero = false,
-}) {
-  const ecomind = this.config.ecomind || 'moto';
+  // ⭐ v13: $1.2 preauth + void fallback
+  async _verifyWithFallback(card, proxyStr) {
+    const FALLBACK_AMOUNT = 1.2;
+    const v = this._validateCard(card);
+    if (!v.ok) {
+      return { success: false, reason: v.reason, message: 'Kart doğrulaması başarısız.', raw: v.raw };
+    }
+    const { pan, expMonth, expYear } = v;
+    const amountCents = Math.round(FALLBACK_AMOUNT * 100);
 
-  // 1) İlk deneme (default: moto)
-  const tokenResult = await this._createToken(cardData, tag);
-  if (!tokenResult.success) return tokenResult;
+    const result = await this._chargeWithEcomRetry({
+      cardData: { pan, expMonth, expYear, cvv: card.cvv },
+      amountCents,
+      capture: false,
+      tag: 'VERIFY-FALLBACK',
+      proxyStr,
+      allowZero: false,
+    });
 
-  console.log(`${this._p(tag)} ✅ Token: ${tokenResult.tokenId}`);
+    result.verifyAmount = FALLBACK_AMOUNT;
+    result.zeroAuthSupported = false;
 
-  let result = await this._createCharge({
+    if (result.success && result.transactionId) {
+      try {
+        const voidRes = await fetch(
+          `${this.config.chargeUrl}/${result.transactionId}/void`,
+          {
+            method: 'POST',
+            headers: {
+              accept: 'application/json',
+              Authorization: `Bearer ${this.config.privateKey}`,
+              'content-type': 'application/json',
+            },
+          }
+        );
+        const voidText = await voidRes.text();
+        console.log(
+          `${this._p('VERIFY-FALLBACK')} void HTTP ${voidRes.status}: ${voidText.substring(0, 120)}`
+        );
+        result.voided = voidRes.ok;
+      } catch (e) {
+        console.warn(`${this._p('VERIFY-FALLBACK')} void hatası: ${e.message}`);
+        result.voided = false;
+      }
+    }
+
+    return result;
+  }
+
+  async _chargeWithEcomRetry({
+    cardData,
     amountCents,
     capture,
-    source: tokenResult.tokenId,
     tag,
-    ecomind,
-    allowZero,
     proxyStr,
-  });
+    allowZero = false,
+  }) {
+    const ecomind = this.config.ecomind || 'moto';
 
-  // 2) restricted_card + moto → ecom ile yeniden dene
-  if (
-    !result.success &&
-    result.reason === 'restricted_card' &&
-    ecomind === 'moto'
-  ) {
-    console.log(
-      `${this._p(tag)} 🔄 restricted_card (moto) → ecom ile yeniden deneniyor...`
-    );
+    const tokenResult = await this._createToken(cardData, tag);
+    if (!tokenResult.success) return tokenResult;
 
-    const retryTag = tag + '-ECOM';
-    const tokenResult2 = await this._createToken(cardData, retryTag);
-    if (!tokenResult2.success) {
+    console.log(`${this._p(tag)} ✅ Token: ${tokenResult.tokenId}`);
+
+    let result = await this._createCharge({
+      amountCents,
+      capture,
+      source: tokenResult.tokenId,
+      tag,
+      ecomind,
+      allowZero,
+      proxyStr,
+    });
+
+    if (
+      !result.success &&
+      result.reason === 'restricted_card' &&
+      ecomind === 'moto'
+    ) {
+      console.log(
+        `${this._p(tag)} 🔄 restricted_card (moto) → ecom ile yeniden deneniyor...`
+      );
+
+      const retryTag = tag + '-ECOM';
+      const tokenResult2 = await this._createToken(cardData, retryTag);
+      if (!tokenResult2.success) {
+        return {
+          ...result,
+          ecomind,
+          retry: {
+            attempted: true,
+            success: false,
+            from: 'moto',
+            to: 'ecom',
+            step: 'token_create',
+            error: tokenResult2.message || tokenResult2.reason,
+          },
+        };
+      }
+
+      console.log(`${this._p(retryTag)} ✅ Token (ecom): ${tokenResult2.tokenId}`);
+
+      const result2 = await this._createCharge({
+        amountCents,
+        capture,
+        source: tokenResult2.tokenId,
+        tag: retryTag,
+        ecomind: 'ecom',
+        allowZero,
+        proxyStr,
+      });
+
+      if (result2.success) {
+        console.log(`${this._p(tag)} ✅ ECOM retry BAŞARILI`);
+        return {
+          ...result2,
+          ecomind: 'ecom',
+          retriedFrom: 'moto',
+          retry: {
+            attempted: true,
+            success: true,
+            from: 'moto',
+            to: 'ecom',
+            motoReason: result.reason,
+            motoMessage: result.message,
+          },
+        };
+      }
+
       return {
-        ...result,
-        ecomind,
+        ...result2,
+        ecomind: 'ecom',
         retry: {
           attempted: true,
           success: false,
           from: 'moto',
           to: 'ecom',
-          step: 'token_create',
-          error: tokenResult2.message || tokenResult2.reason,
+          moto: {
+            reason: result.reason,
+            message: result.message,
+            providerCode: result.providerCode,
+          },
+          ecom: {
+            reason: result2.reason,
+            message: result2.message,
+            providerCode: result2.providerCode,
+          },
         },
       };
     }
 
-    console.log(`${this._p(retryTag)} ✅ Token (ecom): ${tokenResult2.tokenId}`);
-
-    const result2 = await this._createCharge({
-      amountCents,
-      capture,
-      source: tokenResult2.tokenId,
-      tag: retryTag,
-      ecomind: 'ecom',
-      allowZero,
-      proxyStr,
-    });
-
-    if (result2.success) {
-      console.log(`${this._p(tag)} ✅ ECOM retry BAŞARILI (moto reddedilmişti)`);
-      return {
-        ...result2,
-        ecomind: 'ecom',
-        retriedFrom: 'moto',
-        retry: {
-          attempted: true,
-          success: true,
-          from: 'moto',
-          to: 'ecom',
-          motoReason: result.reason,
-          motoMessage: result.message,
-        },
-      };
-    }
-
-    console.log(
-      `${this._p(tag)} ❌ ECOM retry de başarısız: ${result2.reason} - ${result2.message || ''}`
-    );
-
-    return {
-      ...result2,
-      ecomind: 'ecom',
-      retry: {
-        attempted: true,
-        success: false,
-        from: 'moto',
-        to: 'ecom',
-        moto: {
-          reason: result.reason,
-          message: result.message,
-          providerCode: result.providerCode,
-        },
-        ecom: {
-          reason: result2.reason,
-          message: result2.message,
-          providerCode: result2.providerCode,
-        },
-      },
-    };
+    return { ...result, ecomind };
   }
 
-  return { ...result, ecomind };
-}
-
-  // ============================================================
-  // Extraction helpers
-  // ============================================================
   extractChecks(raw) {
     const cloverSource = raw.source || raw.response?.source;
     return {
@@ -938,7 +892,6 @@ async _chargeWithEcomRetry({
         this._safeStr(raw.error?.message || raw.error?.declineCode, null),
     };
   }
-
 
   extractTransaction(raw) {
     return {

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin Panel</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; background: #fafafa; color: #222; }
+    h1 { margin-top: 0; }
+    section { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+    th { background: #f0f0f0; }
+    tr:hover { background: #f7fbff; }
+    button { cursor: pointer; padding: 4px 10px; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 6px; overflow: auto; max-height: 400px; }
+    input[type="text"] { padding: 6px 10px; width: 280px; margin-bottom: 10px; }
+    #user-detail { display: none; }
+    .badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+    .badge-admin { background: #ffe066; }
+    .badge-active { background: #b2f2bb; }
+    .badge-inactive { background: #ffc9c9; }
+  </style>
+</head>
+<body>
+
+  <h1>👑 Admin Panel</h1>
+  <p>
+    <a href="/">← Ana sayfa</a> &nbsp;|&nbsp;
+    <span id="whoami"></span>
+    <button id="logout" style="margin-left:10px">Çıkış</button>
+  </p>
+
+  <section>
+    <h2>Özet</h2>
+    <pre id="stats">Yükleniyor...</pre>
+  </section>
+
+  <section>
+    <h2>Kullanıcılar</h2>
+    <input id="user-search" type="text" placeholder="username / email ara...">
+    <table id="users-table">
+      <thead>
+        <tr>
+          <th>ID</th><th>Username</th><th>Email</th><th>Role</th>
+          <th>Credits</th><th>Live Cards</th><th>Enrollments</th>
+          <th>Transactions</th><th>Durum</th><th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="user-detail">
+    <h2>Kullanıcı Detayı — <span id="detail-name"></span>
+      <button onclick="document.getElementById('user-detail').style.display='none'">Kapat</button>
+    </h2>
+    <h3>Live Cards</h3>
+    <pre id="detail-live-cards">-</pre>
+    <h3>Transactions</h3>
+    <pre id="detail-txns">-</pre>
+  </section>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>

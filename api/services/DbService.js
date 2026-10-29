@@ -1,3 +1,4 @@
+// services/DbService.js
 // ============================================================
 // DbService — Tüm DB işlemleri buradan geçer
 // ============================================================
@@ -186,9 +187,6 @@ class DbService {
 
   async createEnrollment(input) {
     try {
-      // İki farklı çağrı şeklini destekle:
-      //   createEnrollment(userId, data)       — eski
-      //   createEnrollment({ userId, ... })    — yeni (pos.js)
       let data;
       if (typeof input === 'object' && input.userId !== undefined) {
         data = input;
@@ -620,6 +618,23 @@ class DbService {
     }
   }
 
+  // ============================================================
+  // ⭐ YENİ: Admin role check — requireAdmin middleware kullanır
+  // ============================================================
+  async isUserAdmin(userId) {
+    if (!userId) return false;
+    try {
+      const res = await this.pool.query(
+        `SELECT role FROM users WHERE id = $1 AND is_active = true`,
+        [userId]
+      );
+      return res.rows[0]?.role === 'admin';
+    } catch (e) {
+      console.warn('[DbService] isUserAdmin hatası:', e.message);
+      return false;
+    }
+  }
+
   async createUser({ username, email = null, passwordHash, role = 'user' }) {
     try {
       const normalizedUsername = String(username || email?.split('@')[0] || '').trim().toLowerCase();
@@ -644,7 +659,6 @@ class DbService {
       return await db.getUserPermissions(userId);
     } catch (e) {
       console.warn('[DbService] getUserPermissions hatası:', e.message);
-      // Permission lookup failures must deny access, never grant every action.
       return [];
     }
   }
@@ -652,7 +666,7 @@ class DbService {
   // ============================================================
   // Audit Events
   // ============================================================
-    async auditEvent(
+  async auditEvent(
     userId,
     action,
     resourceType = null,

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api';
 import AnimatedLogo from '../components/AnimatedLogo';
-import { useAuthStore } from '../stores/authStore';
+import { isChromeExtension, useAuthStore } from '../stores/authStore';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -24,8 +24,8 @@ export default function Login() {
     try {
       if (isRegister) await authApi.register(username, password, displayName);
       const result = await authApi.login(username, password);
-      if (!result.token) throw new Error('Token alınamadı');
-      login(result.token, result.user);
+      if (!result.user) throw new Error('Oturum açılamadı');
+      login(isChromeExtension ? result.token : 'cookie-session', result.user);
       navigate('/dashboard');
     } catch (e: any) {
       setError(e.response?.data?.error || e.message);

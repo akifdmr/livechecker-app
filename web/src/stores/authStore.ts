@@ -34,8 +34,11 @@ interface AuthState {
 // ============================================================
 // CONTEXT DETECTION
 // ============================================================
-const isChromeExtension =
+export const isChromeExtension =
   typeof chrome !== 'undefined' && !!chrome?.storage?.local;
+if (!isChromeExtension && typeof localStorage !== 'undefined') {
+  try { localStorage.removeItem('token'); } catch {}
+}
 const DEFAULT_BACKEND_URL = import.meta.env.VITE_API_URL ||
   (isChromeExtension ? 'http://localhost:3000' : '/api');
 
@@ -94,16 +97,12 @@ export const useAuthStore = create<AuthState>()(
       // LOGIN
       // --------------------------------------------------------
       login: (token, user, backendUrl = DEFAULT_BACKEND_URL) => {
-        // Web app'te localStorage'a da yaz (axios interceptor için)
+        // Web clients keep only a non-secret auth-state marker. The HttpOnly
+        // session cookie is the credential and is never exposed to JavaScript.
         if (!isChromeExtension) {
-          try {
-            localStorage.setItem('token', token);
-          } catch (e) {
-            console.warn('[authStore] localStorage.setItem hatası:', e);
-          }
+          try { localStorage.removeItem('token'); } catch {}
         }
-
-        set({ token, user, backendUrl });
+        set({ token: isChromeExtension ? token : 'cookie-session', user, backendUrl });
       },
 
       updateUser: (user) => set((state) => ({ user: state.user ? { ...state.user, ...user } : null })),
@@ -135,6 +134,11 @@ export const useAuthStore = create<AuthState>()(
     // ============================================================
     {
       name: 'auth-storage',
+      version: 2,
+      migrate: (persistedState: any) => ({
+        ...persistedState,
+        token: isChromeExtension ? (persistedState?.token ?? null) : (persistedState?.token ? 'cookie-session' : null),
+      }),
 
       // Context'e göre storage seç
       storage: isChromeExtension
@@ -143,12 +147,13 @@ export const useAuthStore = create<AuthState>()(
 
       // Sadece bu alanlar persist edilsin
       partialize: (state) => ({
-        token: state.token,
+        token: isChromeExtension ? state.token : (state.token ? 'cookie-session' : null),
         user: state.user,
         backendUrl: state.backendUrl,
       }),
       merge: (persistedState, currentState) => {
         const state = { ...currentState, ...(persistedState as Partial<AuthState>) };
+        if (!isChromeExtension && state.token) state.token = 'cookie-session';
         if (!isChromeExtension && !import.meta.env.VITE_API_URL) {
           state.backendUrl = '/api';
         }

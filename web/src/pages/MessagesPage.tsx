@@ -43,7 +43,13 @@ export default function MessagesPage() {
     let disposed = false;
     const hubUrl = import.meta.env.VITE_SIGNALR_URL || 'http://localhost:5001/hubs/messages';
     const hub = new HubConnectionBuilder().withUrl(hubUrl, {
-      accessTokenFactory: () => useAuthStore.getState().token || '',
+      accessTokenFactory: async () => {
+        if (useAuthStore.getState().token === 'cookie-session') {
+          const { data } = await api.post('/auth/signalr-token');
+          return data.token;
+        }
+        return useAuthStore.getState().token || '';
+      },
     }).withAutomaticReconnect().configureLogging(LogLevel.Warning).build();
     hub.on('ReceiveMessage', (incoming: Message) => {
       if (disposed) return;

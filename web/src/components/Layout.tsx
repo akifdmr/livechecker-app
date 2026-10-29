@@ -87,6 +87,7 @@ export default function Layout() {
   }, [token, updateUser]);
 
   function handleLogout() {
+    if (token === 'cookie-session') void authApi.logout().catch(() => {});
     logout();
     navigate('/login', { replace: true });
   }

@@ -214,15 +214,24 @@ export interface BalanceResult {
 
 export type ChargeOperation = 'live_check' | 'preauth' | 'sale';
 
-export interface ChargePayload {
-  card: string;
+// src/api/types.ts
+export type ChargePayload = {
+  // Kart kaynağı (en az biri)
+  card?: string;               // PAN|exp|cvv|...
+  cardId?: number;             // live_cards_full.id
+  enrollmentId?: number;       // card_enrollments.id
+
+  // İşlem
   amount: number;
+  currency?: string;
+  operation?: 'sale' | 'preauth' | 'live_check';
   provider?: string;
-  operation?: ChargeOperation;
-  refundAmount?: number;
-  capture?: boolean;
-  liveCardId?: number;
-}
+  autoFailover?: boolean;
+  orderId?: string;
+
+  // Opsiyonel metadata
+  [key: string]: any;
+};
 
 // ---------------- Check stream ----------------
 export interface CheckStreamOpts {

@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
-const { authMiddleware, login } = require('../auth');
+const jwt = require('jsonwebtoken');
+const { authMiddleware, login, createSession, setSessionCookies, clearSessionCookies } = require('../auth');
 const { findUserById, getUserPermissions } = require('../db');
 const db = require('../db');
 
@@ -38,7 +39,12 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Username ve şifre gerekli' });
     }
     const result = await login(username, password);
-    res.json(result);
+    if (req.get('X-Session-Mode') === 'cookie') {
+      const session = await createSession(result.user.id);
+      setSessionCookies(res, session.token, null, session.expiresAt.getTime() - Date.now());
+      return res.json({ user: result.user });
+    }
+    res.json(result); // Bearer mode remains for non-browser clients such as the extension.
   } catch (e) {
     res.status(401).json({ error: e.message });
   }
@@ -50,6 +56,43 @@ router.get('/me', authMiddleware, async (req, res) => {
   if (!user || !user.is_active) return res.status(401).json({ error: 'Kullanıcı pasif veya bulunamadı' });
   const permissions = await getUserPermissions(user.id);
   res.json({ user: { ...user, credits: req.user.credits, permissions } });
+});
+
+router.get('/sessions', authMiddleware, async (req, res) => {
+  const sessions = await db.pool.query(
+    `SELECT id,created_at,last_seen_at,idle_expires_at,expires_at
+     FROM user_sessions WHERE user_id=$1 AND revoked_at IS NULL AND idle_expires_at>NOW() AND expires_at>NOW()
+     ORDER BY last_seen_at DESC`, [req.user.id]
+  );
+  res.json({ sessions: sessions.rows.map((item) => ({ ...item, current: item.id === req.user.sessionId })) });
+});
+
+router.delete('/sessions/:id', authMiddleware, async (req, res) => {
+  const result = await db.pool.query(
+    `UPDATE user_sessions SET revoked_at=NOW() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL RETURNING id`,
+    [req.params.id, req.user.id]
+  );
+  if (!result.rowCount) return res.status(404).json({ error: 'Oturum bulunamadı' });
+  if (req.params.id === req.user.sessionId) clearSessionCookies(res);
+  res.json({ ok: true });
+});
+
+router.post('/logout', authMiddleware, async (req, res) => {
+  if (req.user.sessionId) await db.pool.query('UPDATE user_sessions SET revoked_at=NOW() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL', [req.user.sessionId, req.user.id]);
+  clearSessionCookies(res);
+  res.json({ ok: true });
+});
+
+router.post('/logout-all', authMiddleware, async (req, res) => {
+  await db.pool.query('UPDATE user_sessions SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL', [req.user.id]);
+  clearSessionCookies(res);
+  res.json({ ok: true });
+});
+
+router.post('/signalr-token', authMiddleware, (req, res) => {
+  if (!req.user.sessionId || !process.env.JWT_SECRET) return res.status(400).json({ error: 'Tarayıcı oturumu gerekli' });
+  const token = jwt.sign({ id: req.user.id, username: req.user.username, email: req.user.email, role: req.user.role, sessionId: req.user.sessionId }, process.env.JWT_SECRET, { expiresIn: '2m' });
+  res.json({ token });
 });
 
 // PATCH /auth/profile — users may edit only their own profile and password.
@@ -83,6 +126,10 @@ router.patch('/profile', authMiddleware, async (req, res) => {
       `UPDATE users SET ${sets.join(', ')} WHERE id=$${values.length}
        RETURNING id, username, email, role, display_name, is_active, created_at, last_login`, values
     );
+    if (newPassword) {
+      await db.pool.query('UPDATE user_sessions SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL', [req.user.id]);
+      clearSessionCookies(res);
+    }
     const permissions = await getUserPermissions(req.user.id);
     res.json({ user: { ...result.rows[0], credits: req.user.credits, permissions } });
   } catch (error) {

