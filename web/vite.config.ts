@@ -3,9 +3,27 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
-    build: {
-    outDir: 'dist',
-    emptyOutDir: true,   // ⭐ her build'de temizle
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+    chunkSizeWarningLimit: 800,
+    rolldownOptions: {
+      output: {
+        // Eski "advancedChunks" yerine "codeSplitting" kullanılıyor
+        codeSplitting: {
+          groups: [
+            {
+              name: "react-vendor",
+              test: /node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom)[\\/]/,
+            },
+            {
+              name: "vendor",
+              test: /node_modules[\\/]/,
+            },
+          ],
+        },
+      },
+    },
   },
   server: {
     host: "0.0.0.0",

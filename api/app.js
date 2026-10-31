@@ -1,5 +1,5 @@
 // ============================================================
-// LIVE CHECK BACKEND v3.3 — Processor Routing + Charge Audit
+// LIVE CHECK BACKEND v3.4 — Card Image Generation entegre
 // + Single-service deploy (Render/Railway/Fly) — Express serves FE+BE
 // ============================================================
 
@@ -66,6 +66,7 @@ const posRoutes = require('./routes/pos');
 const ledgerRoutes = require('./routes/ledger');
 const provisionsRoutes = require('./routes/provisions');
 const messagesRoutes = require('./routes/messages');
+const cardImageRoutes = require('./routes/cardImage'); // ⭐ YENİ
 
 // ============================================================
 // ORTAM
@@ -85,6 +86,12 @@ const webDistPath = path.join(__dirname, '..', 'web', 'dist');
 const webIndexFile = path.join(webDistPath, 'index.html');
 const hasWebBuild = fs.existsSync(webIndexFile);
 
+// ⭐ Card images dir — startup'ta oluştur
+const cardImagesPath = path.join(__dirname, 'public', 'card-images');
+if (!fs.existsSync(cardImagesPath)) {
+  fs.mkdirSync(cardImagesPath, { recursive: true });
+}
+
 // ============================================================
 // OPENAPI DOCS
 // ============================================================
@@ -100,21 +107,17 @@ app.get('/api-docs', (req, res) => {
 
 // ============================================================
 // ⭐ MIDDLEWARE SIRASI (kritik!)
-// 1) cors + body parser
-// 2) request logger (1 kere — tek yerde)
-// 3) /api prefix strip
-// 4) checker role check
 // ============================================================
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Request logger — TEK kayıt. API docs endpoint hariç her şeyi loglar.
+// Request logger — TEK kayıt.
 app.use((req, res, next) => {
-  // api-docs ve health log spam'ini engelle
   const skipLog =
     req.path === '/health' ||
     req.path.startsWith('/api-docs') ||
-    req.path.startsWith('/assets/');
+    req.path.startsWith('/assets/') ||
+    req.path.startsWith('/card-images/'); // ⭐ görsel serve log spam'i engelle
 
   req.requestId = randomUUID();
   const startedAt = Date.now();
@@ -132,9 +135,19 @@ app.use((req, res, next) => {
   next();
 });
 
-// ⭐ /api prefix strip — frontend `/api/live-cards` çağırır, backend `/live-cards` bekler.
-//    Dev'de Vite proxy, prod'da bu middleware strip eder.
-//    NOT: `/api-docs` buradan etkilenmez (startsWith('/api/') !== startsWith('/api-docs')).
+// ⭐ Card images static serving — UUID filename'ler sayesinde tahmin edilemez
+app.use(
+  '/card-images',
+  express.static(cardImagesPath, {
+    index: false,
+    maxAge: '7d',
+    etag: true,
+    fallthrough: true,
+  })
+);
+console.log(`[CARD-IMAGES] Static serving from: ${cardImagesPath}`);
+
+// ⭐ /api prefix strip
 app.use((req, _res, next) => {
   if (
     req.url === '/api' ||
@@ -149,7 +162,6 @@ app.use((req, _res, next) => {
 
 // ============================================================
 // CHECKER ROLÜ KISITLAMASI
-// ⭐ FIX: Frontend (HTML/JS/CSS) istekleri değil, sadece API istekleri kısıtlanır.
 // ============================================================
 app.use(async (req, res, next) => {
   const header = req.headers.authorization || '';
@@ -162,7 +174,6 @@ app.use(async (req, res, next) => {
 
   if (user?.role !== 'checker') return next();
 
-  // ⭐ /api prefix'siz istek (frontend asset / SPA route) → checker bile erişebilir
   if (!req._wasApiPrefixed) return next();
 
   const allowed =
@@ -186,7 +197,7 @@ app.use(async (req, res, next) => {
 });
 
 // ============================================================
-// DEPENDENCY INIT — SIRALAMA KRİTİK
+// DEPENDENCY INIT
 // ============================================================
 
 // 1️⃣ ProxyManager
@@ -299,6 +310,7 @@ app.use('/', posRoutes(deps));
 app.use('/', ledgerRoutes);
 app.use('/', provisionsRoutes(deps));
 app.use('/', messagesRoutes);
+app.use('/', cardImageRoutes({ cardChecker, dbService: DbService })); // ⭐ YENİ
 
 // ============================================================
 // HEALTH
@@ -345,23 +357,25 @@ app.get('/health', async (req, res) => {
     binCount: binDb.bins.size,
     proxies: proxyManager.stats(),
     webBuild: hasWebBuild ? 'available' : 'missing',
+    cardImageGen: {
+      replicateConfigured: !!process.env.REPLICATE_API_TOKEN,
+      storagePath: cardImagesPath,
+    },
   });
 });
 
 // ============================================================
-// ⭐ STATIC FRONTEND (production — single-service deploy)
+// ⭐ STATIC FRONTEND
 // ============================================================
 if (hasWebBuild) {
   console.log(`[WEB] Static frontend serving from: ${webDistPath}`);
 
-  // Statik assetler (js, css, img vs.)
   app.use(
     express.static(webDistPath, {
-      index: false,        // `/` için SPA fallback hallediyor
-      maxAge: '1h',        // asset'ler cache'lensin
+      index: false,
+      maxAge: '1h',
       etag: true,
       setHeaders: (res, filePath) => {
-        // index.html cache'lenmesin — yeni deploy hemen görünsün
         if (filePath.endsWith('index.html')) {
           res.setHeader('Cache-Control', 'no-cache, must-revalidate');
         }
@@ -369,17 +383,15 @@ if (hasWebBuild) {
     })
   );
 
-  // SPA fallback — API olmayan tüm GET'ler index.html
   app.get('*', (req, res, next) => {
-    // API ve sistem endpoint'leri SPA'ya düşmesin
     if (
       req._wasApiPrefixed ||
       req.path === '/health' ||
-      req.path.startsWith('/api-docs')
+      req.path.startsWith('/api-docs') ||
+      req.path.startsWith('/card-images/') // ⭐ statik görsel SPA'ya düşmesin
     ) {
       return next();
     }
-    // Sadece GET (Express app.get zaten filtreliyor ama ekstra güvenlik)
     if (req.method !== 'GET') return next();
 
     res.sendFile(webIndexFile, (err) => {
@@ -393,7 +405,7 @@ if (hasWebBuild) {
 }
 
 // ============================================================
-// VITE DEV MIDDLEWARE (yalnızca IS_DEV && SERVE_WEB)
+// VITE DEV MIDDLEWARE
 // ============================================================
 async function attachWebDevMiddleware(server) {
   if (!IS_DEV || !SERVE_WEB) return;
@@ -412,7 +424,7 @@ async function attachWebDevMiddleware(server) {
 }
 
 // ============================================================
-// 404 — bilinmeyen route (JSON)
+// 404
 // ============================================================
 app.use((req, res, next) => {
   if (req.method !== 'GET' && req.method !== 'POST') return next();
@@ -505,12 +517,14 @@ async function startServer() {
     const ps = proxyManager.stats();
 
     console.log(`\n========================================`);
-    console.log(`  LIVE CHECK BACKEND v3.3`);
+    console.log(`  LIVE CHECK BACKEND v3.4`);
     console.log(`  Ortam: ${APP_ENV} ${IS_DEV ? '🔧 (DEV)' : '🚀 (PROD)'}`);
     console.log(`  Port: ${config.PORT}`);
     console.log(`  BIN kayıtları: ${binDb.bins.size}`);
     console.log(`  Proxy: ${ps.total} adet (${ps.alive} aktif)`);
     console.log(`  Web build: ${hasWebBuild ? '✅ served' : '❌ API-only'}`);
+    console.log(`  Card images: ${cardImagesPath}`);
+    console.log(`  Replicate: ${process.env.REPLICATE_API_TOKEN ? '✅ configured' : '⚠️  MISSING TOKEN'}`);
     console.log(`  Aktif Provider'lar (${providerList.length}):`);
     providerList.forEach((p) => console.log(`    - ${p}`));
     console.log(`  Endpoint'ler:`);
@@ -525,6 +539,9 @@ async function startServer() {
     console.log(`    POST /charge              → auth/capture/refund/sale`);
     console.log(`    GET  /charge/history      → charge_audit geçmişi`);
     console.log(`    POST /balance-check       → auth ($0 = live_check)`);
+    console.log(`    POST /card-image          → PAN'dan kart görseli (⭐ yeni)`);
+    console.log(`    POST /card-image/card/:id → Live kart'tan görsel (⭐ yeni)`);
+    console.log(`    GET  /card-image/archive  → Görsel arşivi (⭐ yeni)`);
     console.log(`    GET  /processor-routing   → routing kuralları`);
     console.log(`    GET  /provider-transactions           → txn listesi`);
     console.log(`    GET  /provider-transactions/summary   → özet`);

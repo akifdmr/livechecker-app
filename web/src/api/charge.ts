@@ -1,30 +1,25 @@
 // ============================================================
 // src/api/charge.ts — birleşik sürüm
-// Kart çekimi: charge / chargeById / execute
-// Post-charge:  capture / void / refund
-// History:      history
+// ⭐ 403/401 → provider_config_error olarak normalize edilir.
 // ============================================================
 import { api } from './client';
 import { normalizeBalance } from './normalize';
 import type { ChargePayload } from './types';
 
-// ============================================================
-// TYPES
-// ============================================================
 export type ChargeOperation = 'sale' | 'preauth' | 'live_check';
 
 export type ChargeInput = {
   amount: number;
   currency?: string;
   provider?: string;
-  operation?: ChargeOperation;   // default 'sale'
+  operation?: ChargeOperation;
   autoFailover?: boolean;
   orderId?: string;
 };
 
 export type ChargeResult = {
   success: boolean;
-  status: 'APPROVED' | 'LIVE' | 'DEAD' | 'ERROR' | 'UNKNOWN';
+  status: 'APPROVED' | 'LIVE' | 'DEAD' | 'ERROR' | 'UNKNOWN' | (string & {});
   reason: string;
   reasonShort?: string | null;
   reasonLong?: string | null;
@@ -37,7 +32,7 @@ export type ChargeResult = {
   authCode?: string | null;
   transactionId?: string | null;
   chargeId?: string | null;
-  txnId?: number | null;         // ⭐ charge_audit.id — capture/void/refund için
+  txnId?: number | null;
   amount?: number;
   currency?: string;
   duration?: number;
@@ -59,63 +54,75 @@ export type ChargeResult = {
 };
 
 // ============================================================
+// ⭐ ORTAK WRAPPER — 403/401 → provider_config_error
+// ============================================================
+async function wrapCharge(p: Promise<{ data: any }>): Promise<ChargeResult> {
+  try {
+    const { data } = await p;
+    return normalizeBalance(data) as unknown as ChargeResult;
+  } catch (e: any) {
+    const httpStatus = e?.response?.status;
+    const body = e?.response?.data;
+    const msg = body?.message || body?.error || e?.message || 'İşlem başarısız';
+
+    // 403/401 → credential / IP whitelist sorunu
+    if (httpStatus === 403 || httpStatus === 401) {
+      console.error('[CHARGE] 🔒 403/401', { body, msg });
+      return {
+        success: false,
+        status: 'ERROR',
+        reason: 'provider_config_error',
+        reasonShort: 'Provider kimlik hatası',
+        reasonLong:
+          'Provider API 403/401 döndü. Credential (API key / transaction key / merchant ID) ' +
+          'veya IP whitelist kontrolü gerekli.',
+        message: msg,
+        raw: body,
+      } as ChargeResult;
+    }
+
+    throw e;
+  }
+}
+
+// ============================================================
 // CHARGE API
 // ============================================================
 export const chargeApi = {
-  // ----------------------------------------------------------
-  // 1) MANUEL KART — PAN|exp|cvv|...
-  // ----------------------------------------------------------
-charge: async (card: string, input: ChargeInput): Promise<ChargeResult> => {
-  const { data } = await api.post('/charge', { card, ...input, operation: input.operation || 'sale' });
-  return normalizeBalance(data) as ChargeResult;
-},
+  charge: (card: string, input: ChargeInput) =>
+    wrapCharge(api.post('/charge', {
+      card, ...input, operation: input.operation || 'sale',
+    })),
 
-chargeById: async (cardId: number, input: ChargeInput): Promise<ChargeResult> => {
-  const { data } = await api.post('/charge', { cardId, ...input, operation: input.operation || 'sale' });
-  return normalizeBalance(data) as ChargeResult;
-},
+  chargeById: (cardId: number, input: ChargeInput) =>
+    wrapCharge(api.post('/charge', {
+      cardId, ...input, operation: input.operation || 'sale',
+    })),
 
-execute: async (payload: ChargePayload): Promise<ChargeResult> => {
-  const { data } = await api.post('/charge', { ...payload, operation: (payload as any).operation || 'sale' });
-  return normalizeBalance(data) as ChargeResult;
-},
+  execute: (payload: ChargePayload) =>
+    wrapCharge(api.post('/charge', {
+      ...payload, operation: (payload as any).operation || 'sale',
+    })),
 
-  // ----------------------------------------------------------
-  // 4) PREAUTH SONRASI CAPTURE
-  //    txnId = charge_audit.id (response.txnId)
-  // ----------------------------------------------------------
   capture: async (txnId: number, amount: number) => {
     const { data } = await api.post(
-      `/provider-transactions/${txnId}/capture`,
-      { amount }
+      `/provider-transactions/${txnId}/capture`, { amount }
     );
     return data;
   },
 
-  // ----------------------------------------------------------
-  // 5) PREAUTH VOID
-  // ----------------------------------------------------------
   void: async (txnId: number) => {
-    const { data } = await api.post(
-      `/provider-transactions/${txnId}/void`
-    );
+    const { data } = await api.post(`/provider-transactions/${txnId}/void`);
     return data;
   },
 
-  // ----------------------------------------------------------
-  // 6) KISMİ / TAM REFUND
-  // ----------------------------------------------------------
   refund: async (txnId: number, amount: number) => {
     const { data } = await api.post(
-      `/provider-transactions/${txnId}/refund`,
-      { amount }
+      `/provider-transactions/${txnId}/refund`, { amount }
     );
     return data;
   },
 
-  // ----------------------------------------------------------
-  // 7) HISTORY
-  // ----------------------------------------------------------
   history: async (filters: Record<string, any> = {}) => {
     const { data } = await api.get('/charge/history', { params: filters });
     return data;

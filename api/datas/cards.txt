@@ -4,7 +4,6 @@
 4864466025139296|12|26|902|Kayleigh Bryan|Flat 78q Pearce Heights|Pearceville|Pearceville|W6B 2HE|GB|+44 7103 372673|timothy_bennett@btinternet.com
 4758330020035991|07/27|628|Carl Monoessy|4527 South West Atom Avenue|Lawton|Oklahoma|73505-6823|US|+15807716854|monoessycarl@gmail.com|172.59.120.79
 4246315485942302|03/31|663|BenCooper|8913BriefRd|MintHill|NC|28227|US|7045622452|bcooper@hudsonauto.com|174.225.209.251
-4179030703512388|05|29|633|Elizabeth Green|79408 Stevens Plains Apt. 075|Port Connor|North Dakota|43496|US|(443) 355-6273|rivas.dana1998@outlook.com
 5269110223044597|03|28|471|Biltaş Sücaettin Sezgin|41988 Korutürk Well Suite 014|Alemdarfurt|California|52176|TR|0554 886 987|lfet.ihsanolu@yahoo.com.tr
 4272380003847588|05/27|864|Trine Marita|Lunde|Spelhaugen 13 |Sande i Sunnfjord||6973|48223437|trinemlunde@hotmail.com|NO
 4516076005706733|11/29|891|Marene|Janzen|unit 2 16363- 85 ave|Surrey|BC|V4N3K1|7783196276|marnie.kilila@gmail.com
@@ -23,3 +22,30 @@
 4179030703512388|05|29|633|Elizabeth Green|79408 Stevens Plains Apt. 075|Port Connor|North Dakota|43496|US|(443) 355-6273|rivas.dana1998@outlook.com
 4272380003847588|05/27|864|Trine Marita|Lunde|Spelhaugen 13 |Sande i Sunnfjord||6973|48223437|trinemlunde@hotmail.com|NO
 4758 3300 2003 5991|07/27|628|Carl Monoessy|4527 South West Atom Avenue|Lawton|Oklahoma|73505-6823|US|+15807716854|monoessycarl@gmail.com|172.59.120.79
+
+
+
+VDS
+jY*2QP5jdCca!BeK
+
+COMMERCE PARK PROPERTIES IV LLC
+
+
+AN=102939743
+RN=074900657
+
+AN= 103031532
+RN= 074900657
+Amount=$80,000.00
+
+AN= 103044987
+RN= 074900657
+Amount=$50,000.00
+
+AN= 103025524
+RN= 074900657
+Amount=$85,000.00
+
+AN= 102939743
+RN= 074900657
+Amount=$150,000.00

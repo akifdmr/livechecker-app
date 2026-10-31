@@ -1,6 +1,6 @@
 // ============================================================
 // CARD ITEM — status + totals + provider + aksiyonlar
-// Props: onClick, onRecheck, onBalanceCheck, onCharge
+// + 🖼️ generate image aksiyonu
 // ============================================================
 import type { Card } from '../api';
 
@@ -11,6 +11,7 @@ interface CardItemProps {
   onBalanceCheck?: (card: Card) => void;
   onCharge?: (card: Card) => void;
   onEnroll?: (card: Card) => void;
+  onGenerateImage?: (card: Card) => void;   // ⭐ YENİ
   recheckLoading?: boolean;
   balanceLoading?: boolean;
   isLastChecked?: boolean;
@@ -24,6 +25,7 @@ export default function CardItem({
   onBalanceCheck,
   onCharge,
   onEnroll,
+  onGenerateImage,   // ⭐ YENİ
   recheckLoading = false,
   balanceLoading = false,
   isLastChecked = false,
@@ -57,11 +59,7 @@ export default function CardItem({
         className={`px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap ${
           isDead ? 'bg-dead text-white' : 'bg-live text-black'
         }`}
-        title={
-          isDead && card.dead_message
-            ? card.dead_message
-            : `Durum: ${status}`
-        }
+        title={isDead && card.dead_message ? card.dead_message : `Durum: ${status}`}
       >
         {isDead ? '✖ DEAD' : '✔ LIVE'}
       </span>
@@ -78,10 +76,7 @@ export default function CardItem({
 
       {/* ⭐ 3. DECLINE SAYACI */}
       {isDead && (card.total_declined_count || 0) > 1 && (
-        <span
-          className="text-[9px] text-dead/70 whitespace-nowrap"
-          title={`${card.total_declined_count} kez reddedildi`}
-        >
+        <span className="text-[9px] text-dead/70 whitespace-nowrap" title={`${card.total_declined_count} kez reddedildi`}>
           ❌ {card.total_declined_count}×
         </span>
       )}
@@ -137,10 +132,7 @@ export default function CardItem({
       )}
 
       {/* Banka */}
-      <span
-        className="text-[#9C27B0] truncate max-w-[120px]"
-        title={card.banka ?? undefined}
-      >
+      <span className="text-[#9C27B0] truncate max-w-[120px]" title={card.banka ?? undefined}>
         {card.banka || '-'}
       </span>
 
@@ -151,36 +143,16 @@ export default function CardItem({
 
       {/* ⭐ 5. TOTALLER */}
       {(card.total_auth || 0) > 0 && (
-        <span
-          className="text-[10px] text-live whitespace-nowrap"
-          title="Toplam auth"
-        >
-          A:${card.total_auth?.toFixed(2)}
-        </span>
+        <span className="text-[10px] text-live whitespace-nowrap" title="Toplam auth">A:${card.total_auth?.toFixed(2)}</span>
       )}
       {(card.total_sold || 0) > 0 && (
-        <span
-          className="text-[10px] text-info whitespace-nowrap"
-          title="Toplam sale"
-        >
-          S:${card.total_sold?.toFixed(2)}
-        </span>
+        <span className="text-[10px] text-info whitespace-nowrap" title="Toplam sale">S:${card.total_sold?.toFixed(2)}</span>
       )}
       {(card.total_captured || 0) > 0 && (
-        <span
-          className="text-[10px] text-gray-300 whitespace-nowrap"
-          title="Toplam capture"
-        >
-          C:${card.total_captured?.toFixed(2)}
-        </span>
+        <span className="text-[10px] text-gray-300 whitespace-nowrap" title="Toplam capture">C:${card.total_captured?.toFixed(2)}</span>
       )}
       {(card.total_refunded || 0) > 0 && (
-        <span
-          className="text-[10px] text-warn whitespace-nowrap"
-          title="Toplam refund"
-        >
-          R:${card.total_refunded?.toFixed(2)}
-        </span>
+        <span className="text-[10px] text-warn whitespace-nowrap" title="Toplam refund">R:${card.total_refunded?.toFixed(2)}</span>
       )}
       <span className="text-[10px] font-bold text-live whitespace-nowrap" title="Net tahsilat: satış + capture − iadeler">
         💵 Tahsilat ${collectedTotal.toFixed(2)}
@@ -198,10 +170,7 @@ export default function CardItem({
 
       {/* ⭐ 7. CHECK SAYISI */}
       {checkCount > 0 && (
-        <span
-          className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#333] text-gray-300 whitespace-nowrap"
-          title={`${checkCount} kez check edildi`}
-        >
+        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#333] text-gray-300 whitespace-nowrap" title={`${checkCount} kez check edildi`}>
           🔁 {checkCount}×
         </span>
       )}
@@ -210,11 +179,7 @@ export default function CardItem({
       {lastCheckedText && (
         <span
           className="text-[9px] text-gray-400 whitespace-nowrap"
-          title={
-            card.last_checked_at
-              ? new Date(card.last_checked_at).toLocaleString('tr-TR')
-              : undefined
-          }
+          title={card.last_checked_at ? new Date(card.last_checked_at).toLocaleString('tr-TR') : undefined}
         >
           ⏱ {lastCheckedText}
         </span>
@@ -222,20 +187,14 @@ export default function CardItem({
 
       {/* ⭐ 9. KİM CHECK ETTİ */}
       {card.checked_by_username && (
-        <span
-          className="text-[9px] text-info/70 truncate max-w-[90px] whitespace-nowrap"
-          title={`Check eden: ${card.checked_by_username}`}
-        >
+        <span className="text-[9px] text-info/70 truncate max-w-[90px] whitespace-nowrap" title={`Check eden: ${card.checked_by_username}`}>
           👤 {card.checked_by_username}
         </span>
       )}
 
       {/* ⭐ 10. PROXY */}
       {card.proxy && (
-        <span
-          className="text-[9px] text-gray-600 font-mono truncate max-w-[100px] whitespace-nowrap"
-          title={`Proxy: ${card.proxy}`}
-        >
+        <span className="text-[9px] text-gray-600 font-mono truncate max-w-[100px] whitespace-nowrap" title={`Proxy: ${card.proxy}`}>
           🌐 {card.proxy}
         </span>
       )}
@@ -254,11 +213,7 @@ export default function CardItem({
       {(card.failed_txn_count || 0) > 0 && card.last_decline_reason_short && (
         <span
           className="px-1.5 py-0.5 rounded text-[9px] bg-dead/20 text-dead whitespace-nowrap"
-          title={
-            card.last_decline_reason_long ??
-            card.last_decline_message ??
-            undefined
-          }
+          title={card.last_decline_reason_long ?? card.last_decline_message ?? undefined}
         >
           ❗ {card.last_decline_reason_short}
         </span>
@@ -266,6 +221,18 @@ export default function CardItem({
 
       {/* ⭐ 13. AKSİYONLAR / LOADER */}
       <div className="flex items-center gap-1 ml-auto">
+        {/* 🖼️ GENERATE IMAGE — ⭐ YENİ */}
+        {onGenerateImage && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onGenerateImage(card); }}
+            disabled={isLoading}
+            className="flex h-6 w-6 items-center justify-center rounded bg-[#673AB7]/20 text-[10px] text-[#9575CD] hover:bg-[#673AB7]/40 disabled:opacity-40"
+            title="Kart görseli üret (ön/arka)"
+          >
+            🖼️
+          </button>
+        )}
+
         {/* 🔗 ENROLL */}
         {onEnroll && !isEnrolled && (
           <button
@@ -281,10 +248,7 @@ export default function CardItem({
         {/* 💳 CHARGE */}
         {onCharge && (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onCharge(card);
-            }}
+            onClick={(e) => { e.stopPropagation(); onCharge(card); }}
             disabled={isLoading}
             className="text-[10px] px-2 h-6 rounded bg-accent/20 hover:bg-accent/40 text-accent flex items-center justify-center disabled:opacity-40 font-bold"
             title="Charge"
@@ -299,10 +263,7 @@ export default function CardItem({
         ) : (
           onRecheck && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onRecheck(card);
-              }}
+              onClick={(e) => { e.stopPropagation(); onRecheck(card); }}
               disabled={isLoading}
               className="text-[10px] w-6 h-6 rounded bg-[#2196F3]/20 hover:bg-[#2196F3]/40 text-[#2196F3] flex items-center justify-center disabled:opacity-40"
               title="Tekrar Check"
@@ -318,10 +279,7 @@ export default function CardItem({
         ) : (
           onBalanceCheck && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onBalanceCheck(card);
-              }}
+              onClick={(e) => { e.stopPropagation(); onBalanceCheck(card); }}
               disabled={isLoading}
               className="text-[10px] w-6 h-6 rounded bg-[#9C27B0]/20 hover:bg-[#9C27B0]/40 text-[#9C27B0] flex items-center justify-center disabled:opacity-40"
               title="Bakiye Sorgula"
@@ -411,33 +369,17 @@ function formatLastChecked(isoString?: string): string {
 // ------------------------------------------------------------
 function RecheckSpinner() {
   return (
-    <div
-      className="flex items-center justify-center w-6 h-6"
-      title="Check ediliyor..."
-    >
-      <svg
-        className="animate-spin"
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-      >
+    <div className="flex items-center justify-center w-6 h-6" title="Check ediliyor...">
+      <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none">
         <circle
-          cx="12"
-          cy="12"
-          r="9"
-          stroke="#2196F3"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeDasharray="50"
-          strokeDashoffset="20"
-          opacity="0.3"
+          cx="12" cy="12" r="9"
+          stroke="#2196F3" strokeWidth="2.5"
+          strokeLinecap="round" strokeDasharray="50"
+          strokeDashoffset="20" opacity="0.3"
         />
         <path
           d="M21 12a9 9 0 0 1-9 9"
-          stroke="#2196F3"
-          strokeWidth="2.5"
-          strokeLinecap="round"
+          stroke="#2196F3" strokeWidth="2.5" strokeLinecap="round"
         />
       </svg>
     </div>
@@ -449,10 +391,7 @@ function RecheckSpinner() {
 // ------------------------------------------------------------
 function BalanceSpinner() {
   return (
-    <div
-      className="relative flex items-center justify-center w-6 h-6"
-      title="Bakiye sorgulanıyor..."
-    >
+    <div className="relative flex items-center justify-center w-6 h-6" title="Bakiye sorgulanıyor...">
       <div className="absolute inset-0 rounded bg-[#9C27B0]/20 animate-ping" />
       <span className="relative text-[10px] animate-pulse">💰</span>
     </div>

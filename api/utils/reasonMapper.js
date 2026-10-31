@@ -1,343 +1,135 @@
 // ============================================================
-// REASON MAPPER
-// Tek kaynak: reason → { short, long, severity } çevirisi
-// Frontend ve backend aynı haritayı kullanır.
+// utils/reasonMapper.js
+// Reason → { short, long, severity, raw } dönüşümü.
+// Tek kaynak: tüm route'lar buradan beslenir.
 // ============================================================
 
-const REASON_MAP = {
-  // ----------------------------------------------------------
-  // ✅ BAŞARI
-  // ----------------------------------------------------------
-  approved: {
-    short: 'Onaylandı',
-    long: 'İşlem başarıyla onaylandı.',
-    severity: 'low',
-  },
-  captured: {
-    short: 'Capture edildi',
-    long: 'Preauth tutarı paraya çevrildi.',
-    severity: 'low',
-  },
-  refunded: {
-    short: 'İade edildi',
-    long: 'İşlem iade edildi.',
-    severity: 'low',
-  },
-  partial_refund: {
-    short: 'Kısmi iade',
-    long: 'Belirtilen tutar kadar iade yapıldı.',
-    severity: 'low',
-  },
-  voided: {
-    short: 'İptal edildi',
-    long: 'İşlem void edildi.',
-    severity: 'low',
-  },
+const REASONS = {
+  // ---------------- SUCCESS ----------------
+  approved: { short: 'Onaylandı', long: 'İşlem başarıyla onaylandı.', severity: 'low' },
+  hold_for_review: { short: 'İncelemede', long: 'İşlem banka tarafından incelemeye alındı.', severity: 'medium' },
 
-  // ----------------------------------------------------------
-  // ❌ KART BAZLI REDDİ — banka/provider'ın kart için verdiği yanıt
-  // ----------------------------------------------------------
-  insufficient_funds: {
-    short: 'Yetersiz bakiye',
-    long: 'Kartın bakiyesi veya kullanılabilir limiti yetersiz.',
-    severity: 'medium',
-  },
-  limit_exceeded: {
-    short: 'Limit aşıldı',
-    long: 'Kartın günlük/aylık işlem limiti aşılmış.',
-    severity: 'medium',
-  },
-  activity_limit_exceeded: {
-    short: 'Aktivite limiti',
-    long: 'Kart sahibinin işlem aktivitesi limitine ulaşıldı.',
-    severity: 'medium',
-  },
-  expired_card: {
-    short: 'Kart süresi dolmuş',
-    long: 'Kartın son kullanma tarihi geçmiş.',
-    severity: 'high',
-  },
-  pick_up_card: {
-    short: 'Kart saklayın',
-    long: 'Kart çalıntı/kayıp olarak işaretli. Fiziksel kartı saklayın.',
-    severity: 'critical',
-  },
-  invalid_account: {
-    short: 'Geçersiz hesap',
-    long: 'Kart numarası geçersiz veya hesap kapatılmış.',
-    severity: 'high',
-  },
-  invalid_card_number: {
-    short: 'Geçersiz kart no',
-    long: 'Kart numarası geçersiz.',
-    severity: 'high',
-  },
-  invalid_card_type: {
-    short: 'Desteklenmeyen kart',
-    long: 'Bu kart tipi işlem için desteklenmiyor.',
-    severity: 'medium',
-  },
-  no_account: {
-    short: 'Hesap yok',
-    long: 'Kartın bağlı olduğu hesap bulunamadı.',
-    severity: 'high',
-  },
-  restricted_card: {
-    short: 'Kısıtlı kart',
-    long: 'Kart işlem için kısıtlanmış.',
-    severity: 'high',
-  },
-  revoked_card: {
-    short: 'İptal edilmiş kart',
-    long: 'Kart banka tarafından iptal edilmiş.',
-    severity: 'high',
-  },
-  cvv_mismatch: {
-    short: 'CVV hatalı',
-    long: 'CVV kodu kart ile eşleşmiyor.',
-    severity: 'medium',
-  },
-  avs_mismatch: {
-    short: 'AVS hatalı',
-    long: 'Adres/postakodu bilgileri banka kaydıyla eşleşmiyor.',
-    severity: 'medium',
-  },
-  avs_rejected: {
-    short: 'AVS reddedildi',
-    long: 'Adres doğrulaması başarısız.',
-    severity: 'medium',
-  },
-  cvv_rejected: {
-    short: 'CVV reddedildi',
-    long: 'CVV doğrulaması başarısız.',
-    severity: 'medium',
-  },
-  security_violation: {
-    short: 'Güvenlik ihlali',
-    long: 'Banka güvenlik nedeniyle işlemi reddetti.',
-    severity: 'high',
-  },
-  fraudulent: {
-    short: 'Şüpheli işlem',
-    long: 'Banka işlemi fraud şüphesiyle reddetti.',
-    severity: 'critical',
-  },
-  declined: {
-    short: 'Reddedildi',
-    long: 'Banka veya ödeme sağlayıcısı işlemi reddetti; ayrıntılı neden yanıt koduna bağlıdır.',
-    severity: 'medium',
-  },
-  do_not_honor: {
-    short: 'Do not honor',
-    long: 'Banka işlemi onaylamadı.',
-    severity: 'medium',
-  },
-  duplicate: {
-    short: 'Tekrarlanan işlem',
-    long: 'Aynı işlem kısa süre önce yapılmış.',
-    severity: 'low',
-  },
-  duplicate_transaction: {
-    short: 'Tekrarlanan işlem',
-    long: 'Aynı işlem zaten kayıtlı.',
-    severity: 'low',
-  },
-  not_allowed: {
-    short: 'İşleme izin yok',
-    long: 'Bu kart bu tür işleme izinli değil.',
-    severity: 'medium',
-  },
-  transaction_not_allowed: {
-    short: 'İşlem yasak',
-    long: 'Kart bu işlem tipine kapalı.',
-    severity: 'medium',
-  },
-  invalid_expiry: {
-    short: 'Geçersiz son kullanma',
-    long: 'Son kullanma tarihi geçersiz formatta.',
-    severity: 'high',
-  },
-  invalid_expiration_date: {
-    short: 'Geçersiz son kullanma',
-    long: 'Kartın son kullanma tarihi geçersiz.',
-    severity: 'high',
-  },
-  invalid_pan: {
-    short: 'Geçersiz PAN',
-    long: 'Kart numarası geçersiz.',
-    severity: 'high',
-  },
-  missing_fields: {
-    short: 'Eksik bilgi',
-    long: 'İşlem için gerekli alanlar eksik.',
-    severity: 'low',
-  },
+  // ---------------- CARD DECLINES ----------------
+  declined: { short: 'Reddedildi', long: 'Kart banka tarafından reddedildi.', severity: 'medium' },
+  do_not_honor: { short: 'Do Not Honor', long: 'Banka genel ret cevabı döndü.', severity: 'medium' },
+  insufficient_funds: { short: 'Yetersiz bakiye', long: 'Kartta yeterli bakiye bulunmuyor.', severity: 'medium' },
+  restricted_card: { short: 'Kısıtlı kart', long: 'Kart bu işlem için kısıtlanmış.', severity: 'medium' },
+  expired_card: { short: 'Süresi geçmiş', long: 'Kartın son kullanma tarihi geçmiş.', severity: 'medium' },
+  invalid_account: { short: 'Geçersiz hesap', long: 'Kart hesabı geçersiz veya kapalı.', severity: 'medium' },
+  invalid_card_number: { short: 'Geçersiz kart no', long: 'Kart numarası geçersiz.', severity: 'medium' },
+  invalid_pan: { short: 'Geçersiz PAN', long: 'Kart numarası (PAN) geçersiz.', severity: 'medium' },
+  invalid_expiry: { short: 'Geçersiz tarih', long: 'Son kullanma tarihi geçersiz.', severity: 'medium' },
+  invalid_card_type: { short: 'Geçersiz kart tipi', long: 'Kart tipi desteklenmiyor.', severity: 'medium' },
+  invalid_payment_method: { short: 'Geçersiz ödeme yöntemi', long: 'Ödeme yöntemi geçersiz.', severity: 'medium' },
+  pick_up_card: { short: 'Karta el koy', long: 'Banka kartı almaya yönlendirdi.', severity: 'high' },
+  currency_mismatch: { short: 'Para birimi uyuşmazlığı', long: 'İşlem para birimi kart ile uyumsuz.', severity: 'medium' },
 
-  // ----------------------------------------------------------
-  // ⚠️ PROVIDER / GEÇİCİ HATALAR — failover ile düzelebilir
-  // ----------------------------------------------------------
+  // ---------------- AVS / CVV ----------------
+  cvv_mismatch: { short: 'CVV uyumsuz', long: 'CVV kodu kart bilgisiyle uyuşmuyor.', severity: 'medium' },
+  cvv_rejected: { short: 'CVV reddedildi', long: 'CVV doğrulaması reddedildi.', severity: 'medium' },
+  avs_mismatch: { short: 'AVS uyumsuz', long: 'Adres doğrulaması başarısız.', severity: 'medium' },
+  avs_rejected: { short: 'AVS reddedildi', long: 'Adres doğrulaması reddedildi.', severity: 'medium' },
+
+  // ---------------- INFRA / PROVIDER ----------------
   provider_error: {
-    short: 'Sağlayıcı hatası',
-    long: 'Ödeme sağlayıcısı geçici olarak yanıt vermedi. Tekrar deneyin.',
-    severity: 'medium',
+    short: 'Provider hatası',
+    long: 'Provider geçici bir hata döndürdü.',
+    severity: 'high',
   },
   provider_timeout: {
-    short: 'Zaman aşımı',
-    long: 'Ödeme sağlayıcısı zamanında yanıt vermedi.',
-    severity: 'medium',
+    short: 'Provider zaman aşımı',
+    long: 'Provider zamanında yanıt vermedi.',
+    severity: 'high',
+  },
+  provider_config_error: {
+    short: 'Provider kimlik hatası',
+    long: 'Provider kimlik bilgileri (API key / transaction key / merchant ID) veya IP whitelist geçersiz. Provider panelini kontrol edin.',
+    severity: 'high',
   },
   network_error: {
     short: 'Ağ hatası',
-    long: 'Ödeme sağlayıcısına ulaşılamadı. Bağlantıyı kontrol edin.',
-    severity: 'medium',
+    long: 'Provider ile ağ bağlantısı başarısız.',
+    severity: 'high',
   },
   invalid_response: {
     short: 'Geçersiz yanıt',
-    long: 'Sağlayıcıdan beklenmeyen bir yanıt geldi.',
-    severity: 'medium',
-  },
-  token_failed: {
-    short: 'Token oluşturulamadı',
-    long: 'Kart tokenize edilemedi.',
-    severity: 'medium',
-  },
-  token_already_used: {
-    short: 'Token kullanılmış',
-    long: 'Kart tokenı daha önce kullanılmış.',
-    severity: 'medium',
-  },
-
-  // ----------------------------------------------------------
-  // 🔧 YAPILANDIRMA HATALARI — kullanıcı düzeltemez, yönetici gerekli
-  // ----------------------------------------------------------
-  provider_config_error: {
-    short: 'Sağlayıcı yapılandırma hatası',
-    long: 'Sağlayıcı yapılandırması geçersiz (merchant/terminal/anahtar). Yöneticiye bildirin.',
+    long: 'Provider geçersiz veya boş yanıt döndü.',
     severity: 'high',
-  },
-  all_providers_down: {
-    short: 'Tüm sağlayıcılar kapalı',
-    long: 'Kullanılabilir hiçbir ödeme sağlayıcısı yok. Yöneticiye bildirin.',
-    severity: 'critical',
-  },
-
-  // ----------------------------------------------------------
-  // 🚨 KOD HATALARI — provider değil, sunucu tarafı bug
-  // ----------------------------------------------------------
-  internal_error: {
-    short: 'Sunucu hatası',
-    long: 'Sunucu tarafında bir yazılım hatası oluştu. Yöneticiye bildirin.',
-    severity: 'high',
-  },
-
-  // ----------------------------------------------------------
-  // ❓ BİLİNMEYEN
-  // ----------------------------------------------------------
-  unknown: {
-    short: 'Bilinmeyen hata',
-    long: 'Bilinmeyen bir sebeple işlem başarısız oldu.',
-    severity: 'medium',
   },
   unknown_response: {
     short: 'Bilinmeyen yanıt',
-    long: 'Sağlayıcı tanımsız bir yanıt döndü.',
+    long: 'Provider bilinmeyen bir yanıt kodu döndü.',
     severity: 'medium',
   },
-};
+  all_providers_down: {
+    short: 'Tüm providerlar kapalı',
+    long: 'Hiçbir provider şu anda kullanılabilir değil.',
+    severity: 'high',
+  },
+  internal_error: {
+    short: 'Sistem hatası',
+    long: 'Beklenmeyen bir sistem hatası oluştu.',
+    severity: 'high',
+  },
 
-// ============================================================
-// mapReason — tek noktadan çeviri
-// ============================================================
-function mapReason(reason, rawMessage = null) {
-  const r = String(reason || '').toLowerCase().trim();
-
-  const match = REASON_MAP[r];
-  if (match) {
-    return {
-      short: match.short,
-      long: match.long,
-      severity: match.severity,
-      raw: rawMessage || null,
-    };
-  }
-
-  // error_XXX → banka özel kod
-  if (r.startsWith('error_')) {
-    return {
-      short: 'Banka hatası',
-      long: rawMessage || 'Banka özel bir hata kodu döndü.',
-      severity: 'medium',
-      raw: rawMessage,
-    };
-  }
-
-  // processor_XXX → banka özel kod
-  if (r.startsWith('processor_')) {
-    return {
-      short: 'İşlemci hatası',
-      long: rawMessage || 'Processor özel bir hata kodu döndü.',
-      severity: 'medium',
-      raw: rawMessage,
-    };
-  }
-
-  // sdk_XXX → provider SDK hatası
-  if (r.startsWith('sdk_')) {
-    return {
-      short: 'SDK hatası',
-      long: rawMessage || 'Sağlayıcı SDK\'sı hata döndürdü.',
-      severity: 'medium',
-      raw: rawMessage,
-    };
-  }
-
-  // Bilinmeyen — reason'ı olduğu gibi göster
-  return {
-    short: reason || 'Reddedildi',
-    long: rawMessage || 'Bilinmeyen sebep',
+  // ---------------- ZERO-AUTH / LIVE CHECK ----------------
+  zero_auth_unsupported: {
+    short: 'Zero-auth yok',
+    long: '$0 doğrulama bu merchant için desteklenmiyor; $1.2 + void fallback denenecek.',
+    severity: 'low',
+  },
+  invalid_amount: {
+    short: 'Geçersiz tutar',
+    long: 'İşlem tutarı provider tarafından reddedildi.',
     severity: 'medium',
-    raw: rawMessage,
-  };
-}
+  },
+  amount_required: {
+    short: 'Tutar gerekli',
+    long: 'Bu işlem için pozitif tutar gerekli.',
+    severity: 'medium',
+  },
 
-// ============================================================
-// STATUS → Türkçe
-// ============================================================
-function statusToTurkish(status) {
-  const map = {
-    approved: 'Onaylandı',
-    declined: 'Reddedildi',
-    error: 'Hata',
-    captured: 'Capture edildi',
-    refunded: 'İade edildi',
-    partially_refunded: 'Kısmi iade',
-    voided: 'İptal edildi',
-    unknown: 'Bilinmiyor',
-    internal_error: 'Sunucu hatası',       // ⭐ yeni
-    provider_error: 'Sağlayıcı hatası',    // ⭐ yeni (audit status için)
-    provider_timeout: 'Zaman aşımı',       // ⭐ yeni
-    network_error: 'Ağ hatası',            // ⭐ yeni
-  };
-  return map[String(status || '').toLowerCase()] || status || '—';
-}
+  // ---------------- CAPTURE / VOID / REFUND ----------------
+  capture_failed: { short: 'Capture başarısız', long: 'Capture işlemi tamamlanamadı.', severity: 'high' },
+  void_failed: { short: 'Void başarısız', long: 'Void işlemi tamamlanamadı.', severity: 'high' },
+  refund_failed: { short: 'Refund başarısız', long: 'Refund işlemi tamamlanamadı.', severity: 'high' },
+  invalid_transaction_id: { short: 'Geçersiz işlem', long: 'İşlem kimliği geçersiz.', severity: 'high' },
+  transaction_not_found: { short: 'İşlem bulunamadı', long: 'Provider tarafında işlem bulunamadı.', severity: 'high' },
+  transaction_not_accepted: { short: 'İşlem kabul edilmedi', long: 'Provider işlemi kabul etmedi.', severity: 'high' },
+  missing_trans_id: { short: 'İşlem ID yok', long: 'Provider işlem kimliği eksik.', severity: 'high' },
+  already_settled: { short: 'Zaten kapatılmış', long: 'İşlem zaten kapatılmış, refund yapılamaz.', severity: 'medium' },
+  duplicate_transaction: { short: 'Mükerrer işlem', long: 'Bu işlem kısa süre önce tekrar gönderilmiş.', severity: 'medium' },
+  void_not_supported: { short: 'Void desteklenmiyor', long: 'Bu provider void desteklemiyor.', severity: 'medium' },
+  sale_not_supported: { short: 'Sale desteklenmiyor', long: 'Bu provider sale desteklemiyor.', severity: 'medium' },
+  missing_fields: { short: 'Eksik alanlar', long: 'Zorunlu alanlar eksik.', severity: 'medium' },
+  token_failed: { short: 'Token hatası', long: 'Kart token oluşturulamadı.', severity: 'high' },
+  token_already_used: { short: 'Token zaten kullanıldı', long: 'Bu token daha önce kullanılmış.', severity: 'medium' },
 
-// ============================================================
-// Yardımcı: severity seviyesi kontrolü
-// ============================================================
-function isErrorSeverity(severity) {
-  return ['high', 'critical'].includes(String(severity || '').toLowerCase());
-}
-
-function isTransientReason(reason) {
-  const r = String(reason || '').toLowerCase();
-  return ['provider_error', 'provider_timeout', 'network_error', 'invalid_response']
-    .includes(r);
-}
-
-module.exports = {
-  mapReason,
-  statusToTurkish,
-  isErrorSeverity,
-  isTransientReason,
-  REASON_MAP,
+  // ---------------- MISC ----------------
+  recheck_cooldown: { short: 'Cooldown', long: 'Bu kart için kısa süre önce check yapılmış.', severity: 'low' },
+  aborted: { short: 'İptal edildi', long: 'İşlem kullanıcı tarafından iptal edildi.', severity: 'low' },
+  unknown: { short: 'Bilinmeyen', long: 'Bilinmeyen bir hata oluştu.', severity: 'medium' },
 };
+
+function mapReason(reason, message = null) {
+  const key = String(reason || 'unknown').toLowerCase();
+  const entry = REASONS[key];
+
+  if (entry) {
+    return {
+      short: entry.short,
+      long: message || entry.long,
+      severity: entry.severity,
+      raw: message || null,
+    };
+  }
+
+  return {
+    short: key.replace(/_/g, ' ').slice(0, 40),
+    long: message || `Bilinmeyen durum: ${key}`,
+    severity: 'medium',
+    raw: message || null,
+  };
+}
+
+module.exports = { mapReason, REASONS };

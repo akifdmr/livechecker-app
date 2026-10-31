@@ -1,5 +1,5 @@
 // ============================================================
-// SECTION 1: IMPORTS
+// CARDS PAGE — kart listesi + bulk recheck + charge + image gen
 // ============================================================
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -7,23 +7,26 @@ import type { Card, FavList } from '../api';
 import { cardsApi, favoritesApi } from '../api';
 import { posApi } from '../api/pos';
 import CardDetailModal from '../components/CardDetailModal';
+import CardImageArchiveModal from '../components/CardImageArchiveModal';
+import CardImageModal from '../components/CardImageModal';
 import CardItem from '../components/CardItem';
 import ChargeModal from '../components/ChargeModal';
 import StatCard from '../components/StatCard';
 
 // ============================================================
-// SECTION 2: SABİTLER
+// SABİTLER
 // ============================================================
 const PAGE_SIZE = 50;
-const BULK_CONCURRENCY = 3; // ⭐ 5 → 3 (rate limit)
+const BULK_CONCURRENCY = 3;
 
 // ============================================================
-// SECTION 3: COMPONENT + STATE
+// COMPONENT + STATE
 // ============================================================
 export default function CardsPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const detailCardId = searchParams.get('cardId');
+
   const [cards, setCards] = useState<Card[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -59,6 +62,10 @@ export default function CardsPage() {
   const [detailLoadError, setDetailLoadError] = useState('');
   const [chargeCard, setChargeCard] = useState<Card | null>(null);
 
+  // ⭐ Image modalleri
+  const [imageCard, setImageCard] = useState<Card | null>(null);
+  const [showImageArchive, setShowImageArchive] = useState(false);
+
   const [recheckLoadingId, setRecheckLoadingId] = useState<number | null>(null);
   const [balanceLoadingId, setBalanceLoadingId] = useState<number | null>(null);
 
@@ -77,7 +84,7 @@ export default function CardsPage() {
   } | null>(null);
 
   // ============================================================
-  // SECTION 4: TÜRETİLMİŞ STATE
+  // TÜRETİLMİŞ STATE
   // ============================================================
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const allOnPageSelected = cards.length > 0 && selectedIds.size === cards.length;
@@ -85,7 +92,7 @@ export default function CardsPage() {
   const selectedCount = selectedIds.size;
 
   // ============================================================
-  // SECTION 5: useEffect — indeterminate checkbox
+  // useEffect — indeterminate checkbox
   // ============================================================
   useEffect(() => {
     if (selectAllRef.current) {
@@ -114,7 +121,7 @@ export default function CardsPage() {
   }, [detailCardId]);
 
   // ============================================================
-  // SECTION 6: OPTIMISTIC UPDATE HELPERS
+  // OPTIMISTIC UPDATE HELPERS
   // ============================================================
   function updateCardInList(cardId: number, patch: Partial<Card>) {
     setCards((prev) =>
@@ -149,7 +156,7 @@ export default function CardsPage() {
   }
 
   // ============================================================
-  // SECTION 7-10: EFFECTS
+  // EFFECTS
   // ============================================================
   useEffect(() => {
     if (!filterOptionsRequestRef.current) {
@@ -201,7 +208,7 @@ export default function CardsPage() {
   ]);
 
   // ============================================================
-  // SECTION 11: DATA LOADING
+  // DATA LOADING
   // ============================================================
   async function loadEnrollments() {
     try {
@@ -280,7 +287,7 @@ export default function CardsPage() {
   }
 
   // ============================================================
-  // SECTION 12: SELECTION HANDLERS
+  // SELECTION HANDLERS
   // ============================================================
   function toggleSelect(cardId: number) {
     setSelectedIds((prev) => {
@@ -301,7 +308,7 @@ export default function CardsPage() {
   }
 
   // ============================================================
-  // SECTION 13: INPUT HANDLERS
+  // INPUT HANDLERS
   // ============================================================
   function onBinInput(value: string) {
     setFilters((f) => ({ ...f, bin: value.replace(/\D/g, '').slice(0, 6) }));
@@ -363,7 +370,7 @@ export default function CardsPage() {
   }
 
   // ============================================================
-  // SECTION 14: PAGINATION
+  // PAGINATION
   // ============================================================
   function goToPage(p: number) {
     if (p < 0 || p >= totalPages) return;
@@ -385,7 +392,7 @@ export default function CardsPage() {
   }
 
   // ============================================================
-  // SECTION 15: RECHECK (TEKLİ)
+  // RECHECK (TEKLİ)
   // ============================================================
   async function handleRecheck(card: Card) {
     if (recheckLoadingId !== null) return;
@@ -393,7 +400,6 @@ export default function CardsPage() {
 
     setRecheckLoadingId(card.id);
     try {
-      // ⭐ Tekli recheck — bulkMode yok (1h cooldown, $0/$1 fallback)
       const data = await cardsApi.recheck(card.id);
 
       if (data.reason === 'recheck_cooldown') {
@@ -433,7 +439,7 @@ export default function CardsPage() {
   }
 
   // ============================================================
-  // SECTION 15b: BULK RECHECK
+  // BULK RECHECK
   // ============================================================
   async function runBulkRecheck(scope: Card[], label: string) {
     if (bulkRecheck?.running) return;
@@ -456,7 +462,6 @@ export default function CardsPage() {
     )
       return;
 
-    // ⭐ Her worker kendi local counter'ını tutar (race condition yok)
     const local = { live: 0, dead: 0, errors: 0, cooldown: 0 };
     const initial = {
       running: true,
@@ -478,7 +483,6 @@ export default function CardsPage() {
         if (!card) break;
 
         try {
-          // ⭐ bulkMode: true → $0 auth zorunlu, $1 yasak, 24h cooldown
           const data = await cardsApi.recheck(card.id, { bulkMode: true });
 
           if (data.reason === 'recheck_cooldown') {
@@ -500,7 +504,6 @@ export default function CardsPage() {
           }
         }
 
-        // ⭐ Tek noktada state güncelle — race yok
         setBulkRecheck({
           ...initial,
           done: local.live + local.dead + local.errors + local.cooldown,
@@ -550,7 +553,7 @@ export default function CardsPage() {
   }
 
   // ============================================================
-  // SECTION 16: BALANCE CHECK (TEKLİ)
+  // BALANCE CHECK (TEKLİ)
   // ============================================================
   async function handleBalanceCheck(card: Card) {
     if (balanceLoadingId !== null) return;
@@ -619,7 +622,7 @@ export default function CardsPage() {
   }
 
   // ============================================================
-  // SECTION 17: RENDER
+  // RENDER
   // ============================================================
   const bulkPct = bulkRecheck
     ? Math.round((bulkRecheck.done / Math.max(1, bulkRecheck.total)) * 100)
@@ -830,6 +833,14 @@ export default function CardsPage() {
           <div className="flex-1" />
 
           <button
+            onClick={() => setShowImageArchive(true)}
+            className="bg-[#673AB7] hover:bg-[#512DA8] text-white px-3 py-2 rounded-md text-xs font-bold"
+            title="Görsel arşivi"
+          >
+            📦 Görseller
+          </button>
+
+          <button
             onClick={handleRecheckSelected}
             disabled={bulkRecheck?.running || selectedCount === 0}
             className="bg-[#9C27B0] hover:bg-[#7B1FA2] disabled:bg-gray-600 disabled:opacity-50 text-white px-3 py-1.5 rounded-md text-xs font-bold"
@@ -890,6 +901,7 @@ export default function CardsPage() {
                     onBalanceCheck={handleBalanceCheck}
                     onCharge={setChargeCard}
                     onEnroll={(c) => navigate(`/enrollments?liveCardId=${c.id}`)}
+                    onGenerateImage={(c) => setImageCard(c)}   // ⭐ IMAGE GEN
                     isEnrolled={enrolledCardIds.has(card.id)}
                   />
                 </div>
@@ -990,6 +1002,20 @@ export default function CardsPage() {
         />
       )}
 
+      {/* IMAGE MODAL — per-card generation */}
+      {imageCard && (
+        <CardImageModal
+          cardId={imageCard.id}
+          defaultHolderName={imageCard.name}
+          onClose={() => setImageCard(null)}
+        />
+      )}
+
+      {/* IMAGE ARCHIVE MODAL */}
+      {showImageArchive && (
+        <CardImageArchiveModal onClose={() => setShowImageArchive(false)} />
+      )}
+
       {/* CHARGE MODAL */}
       {chargeCard && (
         <ChargeModal
@@ -1001,3 +1027,6 @@ export default function CardsPage() {
     </div>
   );
 }
+
+
+
